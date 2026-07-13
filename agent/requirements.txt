@@ -1,4 +1,14 @@
 httpx==0.27.0
+watchdog==4.0.0
+
+# ─── LangGraph agent (Giai đoạn 2) ─────────────────────────────────────────────
+# Version floors, not hard pins — the LangChain stack moves fast; pin exact
+# versions after the first successful build on EC2.
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+pydantic>=2.7
+
+# ─── MCP (legacy — kept until main.py is refactored off the MCP hot path) ───────
 mcp[cli]==1.3.0
 fastmcp==2.2.0
-watchdog==4.0.0
