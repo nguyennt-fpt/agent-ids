@@ -26,7 +26,9 @@ rule-files:
   - custom.rules
 
 af-packet:
-  - interface: eth0
+  # EC2 Nitro (g4dn/g5) names the primary ENI ens5, not eth0. On a non-Nitro
+  # host set this to your primary interface (check `ip -br link`).
+  - interface: ens5
     threads: auto
     cluster-id: 99
     cluster-type: cluster_flow
