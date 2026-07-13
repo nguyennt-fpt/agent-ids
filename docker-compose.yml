@@ -61,8 +61,10 @@ services:
       - NET_RAW
       - SYS_NICE
     volumes:
-      - ./ids/suricata.yaml:/etc/suricata/suricata.yaml:ro
-      - ./ids/rules:/etc/suricata/rules:ro
+      # not :ro — the jasonish/suricata entrypoint chowns these on boot and
+      # exits if that fails (read-only bind mount -> crash loop).
+      - ./ids/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./ids/rules:/etc/suricata/rules
       - suricata-logs:/var/log/suricata
     command: -c /etc/suricata/suricata.yaml --af-packet -l /var/log/suricata
     restart: unless-stopped
@@ -87,7 +89,9 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      # the ollama image has no curl; use the bundled CLI (exit 0 when the
+      # server is up, even before any model is pulled).
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
