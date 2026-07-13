@@ -68,7 +68,10 @@ def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
             "user_agent": a.get("user_agent", ""), "payload": a.get("payload", ""),
         })
 
-    if os.path.exists(NGINX_LOG):
+    # isfile (not exists): the stock nginx image symlinks access.log -> /dev/stdout;
+    # opening that char device blocks forever. isfile is False for it, so we skip
+    # it safely and only read a real access-log file.
+    if os.path.isfile(NGINX_LOG):
         with open(NGINX_LOG, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[-100:]
         for line in lines:
