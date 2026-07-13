@@ -115,6 +115,7 @@ services:
       - nginx-logs:/var/log/nginx:ro
       - ./agent/data:/app/data
     environment:
+      - PYTHONUNBUFFERED=1          # stream agent decisions to `docker logs` live
       - OLLAMA_HOST=http://localhost:11434
       - OLLAMA_MODEL=qwen2.5:14b
       - EVE_LOG=/var/log/suricata/eve.json
