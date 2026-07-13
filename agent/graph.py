@@ -36,6 +36,9 @@ def _structured_llm():
     if _llm is None:
         _llm = ChatOllama(
             model=OLLAMA_MODEL, base_url=OLLAMA_HOST, temperature=0.1,
+            # without an explicit budget Ollama truncates the JSON so most events
+            # in a batch lose their decision and default to benign (kills recall).
+            num_predict=4096, num_ctx=8192,
         ).with_structured_output(DecisionList)
     return _llm
 
