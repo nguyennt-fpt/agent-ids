@@ -35,6 +35,18 @@ def normalize_alert(alert: dict) -> dict:
     }
 
 
+def prime_position(path: str) -> None:
+    """Skip existing backlog: start reading only alerts appended after this call.
+
+    Called once at agent startup. Between benchmark runs the agent is restarted
+    but eve.json (on a named volume) is never cleared, so without this a fresh
+    agent would reprocess a previous run's stale alerts as if they were new —
+    corrupting recall and MTTB. Seeking to EOF at boot pins the read offset past
+    the backlog so only the current run's traffic is processed.
+    """
+    _last_pos[path] = os.path.getsize(path) if os.path.exists(path) else 0
+
+
 def _tail_new_lines(path: str) -> list[str]:
     if not os.path.exists(path):
         return []
@@ -64,7 +76,10 @@ def read_new_alerts(eve_path: str, limit: int = 50) -> list[dict]:
             continue
         if event.get("event_type") == "alert":
             alerts.append(event)
-    return alerts[-limit:]
+    # Do NOT slice to the last `limit` here — dropping the oldest new alerts
+    # silently loses eids. With prime_position() + a 5s poll the new-alert count
+    # per call stays small; `limit` is enforced by the caller if needed.
+    return alerts
 
 
 def read_recent_alerts(eve_path: str, n: int = 20) -> list[dict]:

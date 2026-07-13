@@ -99,6 +99,11 @@ services:
       context: ./agent
       dockerfile: Dockerfile
     container_name: agent
+    # host network so the agent shares the host netfilter tables: the
+    # DOCKER-USER chain only exists in the host namespace, so a bridged agent
+    # could never actually install the DROP rules it "blocks" with. Suricata
+    # runs host-network for the same reason.
+    network_mode: host
     cap_add:
       - NET_ADMIN
     volumes:
@@ -106,12 +111,11 @@ services:
       - nginx-logs:/var/log/nginx:ro
       - ./agent/data:/app/data
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=http://localhost:11434
       - OLLAMA_MODEL=qwen2.5:14b
       - EVE_LOG=/var/log/suricata/eve.json
       - NGINX_LOG=/var/log/nginx/access.log
       - BLOCK_CONFIDENCE_THRESHOLD=0.80
-      - MCP_PORT=8000
       - DASHBOARD_DB=/app/data/events.db
       - RESPONSE_MODE=${RESPONSE_MODE:-agent}
       - BLOCK_ENABLED=${BLOCK_ENABLED:-true}
@@ -121,13 +125,9 @@ services:
       - GOLDEN_PATH=/app/data/golden.jsonl
       - HOLDOUT_PATH=/app/data/holdout.jsonl
       - SURICATA_BIN=
-    ports:
-      - "8000:8000"
     depends_on:
       ollama:
         condition: service_healthy
-    networks:
-      - security-net
     restart: unless-stopped
 
   # ─── LAYER 4: Dashboard ────────────────────────────────────────────────────

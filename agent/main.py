@@ -115,7 +115,13 @@ def record_decision(mcp: MCPClient, *, eid: str, src_ip: str, attack: str, actio
                     mitre: str = "", severity: str = "", note: str = "") -> None:
     """Persist one decision (with MITRE enrichment) and optionally enforce a block."""
     if action == "block" and BLOCK_ENABLED and src_ip and not _is_private(src_ip):
-        mcp.call("block_attacker_ip", ip=src_ip, ttl_seconds=3600)
+        res = mcp.call("block_attacker_ip", ip=src_ip, ttl_seconds=3600)
+        try:
+            status = json.loads(res).get("status")
+        except Exception:
+            status = res
+        if status not in ("blocked", "already_blocked"):
+            print(f"[BLOCK-FAIL] {src_ip}: {res}")   # don't report a block that didn't happen
     msg = f"[{mode}] {action.upper()} {attack} eid={eid} conf={confidence} :: {reason}"
     mcp.call("alert_dashboard", message=msg, src_ip=src_ip, attack_type=attack,
              action=action, eid=eid, mode=mode, mitre=mitre, severity=severity, note=note)

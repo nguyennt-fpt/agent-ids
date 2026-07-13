@@ -33,6 +33,17 @@ af-packet:
     defrag: yes
     use-mmap: yes
     tpacket-v3: yes
+  # loopback: so the benchmark (replay -> http://localhost on the host) is
+  # visible to the IDS. checksum-checks off because loopback offloads checksums
+  # and Suricata would otherwise drop those packets as invalid.
+  - interface: lo
+    threads: auto
+    cluster-id: 98
+    cluster-type: cluster_flow
+    checksum-checks: no
+    defrag: yes
+    use-mmap: yes
+    tpacket-v3: yes
 
 outputs:
   - eve-log:

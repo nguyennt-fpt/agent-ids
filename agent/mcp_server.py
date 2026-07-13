@@ -5,7 +5,9 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
-from tools.alert_reader import normalize_alert, read_new_alerts, read_recent_alerts
+from tools.alert_reader import (
+    normalize_alert, prime_position, read_new_alerts, read_recent_alerts,
+)
 from tools.firewall import block_ip, get_blocked_ips, unblock_ip
 from tools.ids_manager import append_rule, list_custom_rules
 from tools.notifier import send_alert
@@ -116,4 +118,5 @@ def alert_dashboard(message: str, src_ip: str = "", attack_type: str = "",
 
 
 if __name__ == "__main__":
+    prime_position(EVE_LOG)   # skip backlog from previous benchmark runs
     mcp.run(transport="stdio")

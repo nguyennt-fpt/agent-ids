@@ -91,6 +91,14 @@
 </div>
 
 <script>
+// Escape all DB-derived values before interpolating into innerHTML. Attack
+// payloads (<script>, onerror=…) flow through the agent's note/reason fields,
+// so unescaped rendering would execute attacker HTML in the analyst's browser.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 async function loadStats() {
   const r = await fetch('/api/stats');
   const d = await r.json();
@@ -116,14 +124,14 @@ async function loadEvents() {
   }
   tbody.innerHTML = events.map(e => `
     <tr>
-      <td class="ts">${e.ts || ''}</td>
-      <td class="ip">${e.src_ip || ''}</td>
-      <td class="attack">${e.attack || ''}</td>
-      <td class="attack">${e.mitre || ''}</td>
-      <td style="font-weight:600;color:${SEV_COLOR[e.severity] || '#8b949e'}">${(e.severity || '').toUpperCase()}</td>
-      <td class="action-${e.action || 'log'}">${(e.action || 'log').toUpperCase()}</td>
+      <td class="ts">${esc(e.ts)}</td>
+      <td class="ip">${esc(e.src_ip)}</td>
+      <td class="attack">${esc(e.attack)}</td>
+      <td class="attack">${esc(e.mitre)}</td>
+      <td style="font-weight:600;color:${SEV_COLOR[e.severity] || '#8b949e'}">${esc((e.severity || '').toUpperCase())}</td>
+      <td class="action-${esc(e.action || 'log')}">${esc((e.action || 'log').toUpperCase())}</td>
       <td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-          title="${e.detail || ''}">${e.note || e.detail || ''}</td>
+          title="${esc(e.detail)}">${esc(e.note || e.detail)}</td>
     </tr>`).join('');
 }
 
@@ -139,13 +147,13 @@ async function loadRules() {
   }
   tbody.innerHTML = rules.map(r => `
     <tr>
-      <td class="ts">${r.ts || ''}</td>
-      <td style="font-weight:600;color:${RULE_COLOR[r.status] || '#8b949e'}">${(r.status||'').toUpperCase()}</td>
+      <td class="ts">${esc(r.ts)}</td>
+      <td style="font-weight:600;color:${RULE_COLOR[r.status] || '#8b949e'}">${esc((r.status||'').toUpperCase())}</td>
       <td>${r.precision != null ? Number(r.precision).toFixed(2) : ''}</td>
       <td>${r.f1_before != null ? Number(r.f1_before).toFixed(3) : ''} → ${r.f1_after != null ? Number(r.f1_after).toFixed(3) : ''}</td>
       <td>${r.epoch ?? ''}</td>
       <td style="max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-          title="${(r.rule||'').replace(/"/g,'&quot;')}">${r.reason || ''}</td>
+          title="${esc(r.rule)}">${esc(r.reason)}</td>
     </tr>`).join('');
 }
 
