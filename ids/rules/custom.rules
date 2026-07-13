@@ -1,0 +1,127 @@
+# Custom Suricata rules for DVWA common vulnerabilities
+# Tuned for lab/testing environment
+
+# ─── SQL Injection ────────────────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA SQL Injection - OR 1=1 pattern"; \
+  flow:established,to_server; \
+  http.uri; content:"OR"; nocase; content:"1=1"; nocase; distance:0; \
+  pcre:"/(%27|')(\s*)(OR|AND)(\s+)(\d+=\d+|'[^']*'='[^']*')/Ui"; \
+  classtype:web-application-attack; sid:9000001; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA SQL Injection - UNION SELECT"; \
+  flow:established,to_server; \
+  http.uri; content:"UNION"; nocase; content:"SELECT"; nocase; distance:0; \
+  classtype:web-application-attack; sid:9000002; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA SQL Injection - Comment sequence"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/(%23|--|%2D%2D|\/\*)/U"; \
+  http.uri; content:"SELECT"; nocase; \
+  classtype:web-application-attack; sid:9000003; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA SQL Injection - Blind boolean"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/[?&][^=]+=\d+(\s|%20)*(AND|OR)(\s|%20)+(\d+=\d+|SLEEP|BENCHMARK)/Ui"; \
+  classtype:web-application-attack; sid:9000004; rev:1;)
+
+# ─── XSS ─────────────────────────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA XSS - Script tag in parameter"; \
+  flow:established,to_server; \
+  http.uri; content:"<script"; nocase; \
+  classtype:web-application-attack; sid:9000010; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA XSS - Script tag encoded"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/%3Cscript|%3cscript|%253Cscript/U"; \
+  classtype:web-application-attack; sid:9000011; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA XSS - onerror/onload event handler"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/on(error|load|click|mouseover|focus)(\s*)=/Ui"; \
+  classtype:web-application-attack; sid:9000012; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA XSS - javascript: protocol"; \
+  flow:established,to_server; \
+  http.uri; content:"javascript:"; nocase; \
+  classtype:web-application-attack; sid:9000013; rev:1;)
+
+# ─── Command Injection ────────────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA Command Injection - Shell metacharacters"; \
+  flow:established,to_server; \
+  http.request_body; pcre:"/(;|\||&&|`|\$\()(\s*)(cat|ls|id|whoami|pwd|uname|wget|curl|bash|sh|python|perl|ruby|nc|netcat)/"; \
+  classtype:web-application-attack; sid:9000020; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA Command Injection - /etc/passwd read attempt"; \
+  flow:established,to_server; \
+  http.uri; content:"/etc/passwd"; \
+  classtype:web-application-attack; sid:9000021; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA Command Injection - pipe to shell"; \
+  flow:established,to_server; \
+  http.request_body; pcre:"/(%7C|\|)\s*(bash|sh|cmd|powershell)/i"; \
+  classtype:web-application-attack; sid:9000022; rev:1;)
+
+# ─── LFI / Path Traversal ────────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA LFI - Directory traversal"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/(\.\.\/|\.\.\\\\|%2e%2e%2f|%2e%2e\/|\.\.%2f){2,}/Ui"; \
+  classtype:web-application-attack; sid:9000030; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA LFI - System file access attempt"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/(\/etc\/(passwd|shadow|hosts|issue)|\/proc\/self\/environ|\/windows\/system32)/Ui"; \
+  classtype:web-application-attack; sid:9000031; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA RFI - Remote file inclusion attempt"; \
+  flow:established,to_server; \
+  http.uri; pcre:"/[?&][^=]+=(https?|ftp):\/\//Ui"; \
+  classtype:web-application-attack; sid:9000032; rev:1;)
+
+# ─── File Upload ─────────────────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA File Upload - PHP shell upload attempt"; \
+  flow:established,to_server; \
+  http.request_body; content:"<?php"; nocase; \
+  http.request_body; content:"Content-Disposition"; \
+  classtype:web-application-attack; sid:9000040; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA File Upload - exec/system/passthru in upload"; \
+  flow:established,to_server; \
+  http.request_body; pcre:"/<\?php.*?(exec|system|passthru|shell_exec|popen|proc_open|eval)\s*\(/si"; \
+  classtype:web-application-attack; sid:9000041; rev:1;)
+
+# ─── Brute Force / Scanning ───────────────────────────────────────────────────
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA Brute Force - Rapid login attempts"; \
+  flow:established,to_server; \
+  http.uri; content:"/dvwa/login.php"; \
+  http.method; content:"POST"; \
+  threshold: type both, track by_src, count 10, seconds 60; \
+  classtype:attempted-user; sid:9000050; rev:1;)
+
+alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
+  (msg:"DVWA Scanner - Nikto/sqlmap User-Agent detected"; \
+  flow:established,to_server; \
+  http.user_agent; pcre:"/(nikto|sqlmap|nmap|masscan|hydra|burpsuite|acunetix|nessus)/i"; \
+  classtype:web-application-activity; sid:9000051; rev:1;)

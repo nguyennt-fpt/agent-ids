@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# A/B benchmark: run each RESPONSE_MODE x N times, then aggregate + plot.
+# Run from repo root or anywhere: bash benchmark/run_ab.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+cd "$ROOT"
+
+N="${N:-5}"
+TARGET="${TARGET:-http://localhost}"
+DELAY="${DELAY:-0.5}"
+MODES=(rule_based naive agent)
+RAW="$HERE/report/summary_raw.csv"
+
+mkdir -p "$HERE/report"
+rm -f "$RAW"
+
+reset_db() {
+  docker compose exec -T agent python -c \
+    "import sqlite3,os;d=os.getenv('DASHBOARD_DB','/app/data/events.db');\
+c=sqlite3.connect(d);c.execute('DELETE FROM events');c.commit();c.close()" || true
+}
+
+for mode in "${MODES[@]}"; do
+  for run in $(seq 1 "$N"); do
+    echo "==================== mode=$mode run=$run/$N ===================="
+    # restart agent with this mode; never firewall the replay source during benchmark
+    RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d agent
+    sleep 12                      # agent boot (+ ollama readiness check)
+    reset_db                      # clear prior decisions so runs don't mix
+    python "$HERE/replay.py" --target "$TARGET" --delay "$DELAY"
+    python "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW"
+  done
+done
+
+python "$HERE/plot.py"
+echo "Done. See $HERE/report/summary.csv and report/*.png"

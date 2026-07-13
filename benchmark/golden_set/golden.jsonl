@@ -1,0 +1,20 @@
+{"text": "/dvwa/vulnerabilities/sqli/?id=1' OR '1'='1", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=1' UNION SELECT user,password FROM users-- -", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=admin'-- -", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/xss_r/?name=<script>alert(1)</script>", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/xss_r/?name=<img src=x onerror=alert(1)>", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/exec/?ip=127.0.0.1; cat /etc/passwd", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/exec/?ip=127.0.0.1 && whoami", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/fi/?page=../../../../etc/passwd", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/fi/?page=/etc/shadow", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=1' AND SLEEP(5)-- -", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=1", "label": "benign"}
+{"text": "/dvwa/vulnerabilities/xss_r/?name=Alice", "label": "benign"}
+{"text": "/dvwa/vulnerabilities/exec/?ip=8.8.8.8", "label": "benign"}
+{"text": "/dvwa/vulnerabilities/fi/?page=include.php", "label": "benign"}
+{"text": "/search?q=how to prevent SQL injection in PHP", "label": "benign"}
+{"text": "/blog/post?title=understanding XSS script tags", "label": "benign"}
+{"text": "/products?category=union-jack-flags", "label": "benign"}
+{"text": "/profile?user=bob", "label": "benign"}
+{"text": "/dvwa/login.php", "label": "benign"}
+{"text": "/api/notes?text=select milk and bread", "label": "benign"}

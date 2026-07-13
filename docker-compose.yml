@@ -1,0 +1,158 @@
+services:
+
+  # ─── LAYER 1: Vulnerable Web App ───────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: dvwa_root
+      MYSQL_DATABASE: dvwa
+      MYSQL_USER: dvwa
+      MYSQL_PASSWORD: dvwa_pass
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - security-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: dvwa
+    environment:
+      - DB_SERVER=mysql
+      - DB_DATABASE=dvwa
+      - DB_USER=dvwa
+      - DB_PASSWORD=dvwa_pass
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - security-net
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./webserver/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - dvwa
+    networks:
+      - security-net
+    restart: unless-stopped
+
+  # ─── LAYER 2: IDS ──────────────────────────────────────────────────────────
+
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: suricata
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    volumes:
+      - ./ids/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./ids/rules:/etc/suricata/rules:ro
+      - suricata-logs:/var/log/suricata
+    command: -c /etc/suricata/suricata.yaml --af-packet -l /var/log/suricata
+    restart: unless-stopped
+
+  # ─── LAYER 3: LLM ──────────────────────────────────────────────────────────
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - security-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── LAYER 3: AI Agent + MCP Server ────────────────────────────────────────
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: agent
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - suricata-logs:/var/log/suricata:ro
+      - nginx-logs:/var/log/nginx:ro
+      - ./agent/data:/app/data
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=qwen2.5:14b
+      - EVE_LOG=/var/log/suricata/eve.json
+      - NGINX_LOG=/var/log/nginx/access.log
+      - BLOCK_CONFIDENCE_THRESHOLD=0.80
+      - MCP_PORT=8000
+      - DASHBOARD_DB=/app/data/events.db
+      - RESPONSE_MODE=${RESPONSE_MODE:-agent}
+      - BLOCK_ENABLED=${BLOCK_ENABLED:-true}
+      - MEMORY_ENABLED=${MEMORY_ENABLED:-false}
+      - EPOCH=${EPOCH:-0}
+      - EMBED_MODEL=nomic-embed-text
+      - GOLDEN_PATH=/app/data/golden.jsonl
+      - HOLDOUT_PATH=/app/data/holdout.jsonl
+      - SURICATA_BIN=
+    ports:
+      - "8000:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - security-net
+    restart: unless-stopped
+
+  # ─── LAYER 4: Dashboard ────────────────────────────────────────────────────
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./agent/data:/app/data:ro
+    environment:
+      - DB_PATH=/app/data/events.db
+    networks:
+      - security-net
+    restart: unless-stopped
+
+networks:
+  security-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  nginx-logs:
+  suricata-logs:
+  ollama-models:

@@ -1,0 +1,14 @@
+{"text": "/dvwa/vulnerabilities/sqli/?id=2' OR 1=1#", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=99' UNION SELECT 1,2,3-- -", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=x' OR 'a'='a", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=1' OR 1=1 LIMIT 1-- -", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/xss_r/?name=<svg onload=alert(2)>", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/exec/?ip=127.0.0.1 | id", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/fi/?page=../../../../../etc/passwd", "label": "malicious"}
+{"text": "/dvwa/vulnerabilities/sqli/?id=7", "label": "benign"}
+{"text": "/dvwa/vulnerabilities/xss_r/?name=Charlie", "label": "benign"}
+{"text": "/dvwa/vulnerabilities/exec/?ip=1.1.1.1", "label": "benign"}
+{"text": "/search?q=best practices against command injection", "label": "benign"}
+{"text": "/products?category=books", "label": "benign"}
+{"text": "/api/notes?text=remember the union meeting", "label": "benign"}
+{"text": "/dvwa/index.php", "label": "benign"}
