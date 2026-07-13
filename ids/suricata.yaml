@@ -5,10 +5,15 @@ vars:
   address-groups:
     HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
     EXTERNAL_NET: "!$HOME_NET"
-    HTTP_SERVERS: "$HOME_NET"
+    # "any" so a request to the box's own loopback / private IP still matches the
+    # `-> $HTTP_SERVERS` rules when the benchmark replays from the same host.
+    HTTP_SERVERS: "any"
     SQL_SERVERS: "$HOME_NET"
     DNS_SERVERS: "$HOME_NET"
     SMTP_SERVERS: "$HOME_NET"
+  # port vars MUST live under port-groups — Suricata 8.x rejects them as
+  # address vars (older versions were lenient, hence the original bug).
+  port-groups:
     HTTP_PORTS: "80"
     SHELLCODE_PORTS: "!80"
     ORACLE_PORTS: 1521
