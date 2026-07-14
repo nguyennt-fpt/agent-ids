@@ -96,7 +96,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ─── LAYER 3: AI Agent + MCP Server ────────────────────────────────────────
+  # ─── LAYER 3: AI Agent (LangGraph) ─────────────────────────────────────────
 
   agent:
     build:
@@ -130,6 +130,14 @@ services:
       - GOLDEN_PATH=/app/data/golden.jsonl
       - HOLDOUT_PATH=/app/data/holdout.jsonl
       - SURICATA_BIN=
+      # headless: auto-approve high-risk blocks (real HITL only in demo_hitl.py)
+      - AUTO_APPROVE=${AUTO_APPROVE:-true}
+      # Optional LangSmith tracing (bài 10) — "glass box" traces of every
+      # node / LLM / tool call. Set API key + TRACING_V2=true to enable.
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-agent-ids}
     depends_on:
       ollama:
         condition: service_healthy

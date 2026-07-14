@@ -24,9 +24,10 @@ from langchain_core.messages import (
 )
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from actions import record_decision
-from gate import classify_risk
+from gate import classify_risk, needs_human
 from schemas import Decision, DecisionList
 from tools.agent_tools import READ_TOOLS
 from tools.memory import add_experience, format_for_prompt, retrieve_similar
@@ -36,6 +37,9 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
 EPOCH = int(os.getenv("EPOCH", "0"))
+# headless (benchmark) auto-approves high-risk actions; the interactive
+# demo_hitl.py sets this false to exercise the real interrupt()-based gate.
+AUTO_APPROVE = os.getenv("AUTO_APPROVE", "true").lower() == "true"
 
 # Gray band: triage confidence in [low, high] → escalate to the investigate loop.
 AMBIG_LOW = float(os.getenv("AMBIG_LOW", "0.35"))
@@ -200,15 +204,43 @@ def investigate_node(state: AgentState) -> dict:
 
 
 def risk_gate_node(state: AgentState) -> dict:
-    """Risk-tier each action for the audit trail (bài 06). High-tier = block.
-    Human approval via interrupt() lands in Phase 2b; for now it records the
-    tier so the flow position and audit exist."""
-    for d in state["decisions"]:
-        tier = classify_risk(d.get("action", "log"))
-        if tier == "high":
+    """Human-in-the-loop gate (bài 06). Block = high tier; a low-confidence block
+    needs a human. Headless (AUTO_APPROVE) auto-approves and audits; otherwise
+    interrupt() pauses the graph until a human approves/denies (see demo_hitl.py).
+    A denied block is downgraded to warn, never silently dropped."""
+    decisions = state["decisions"]
+    by_eid = {e["eid"]: e for e in state["events"] if e.get("eid")}
+    pending = [d for d in decisions
+               if needs_human(d.get("action", "log"), d.get("confidence", 0.0))]
+    if not pending:
+        return {}
+
+    if AUTO_APPROVE:
+        for d in pending:
             print(f"[GATE] high-risk block eid={d.get('eid')} "
-                  f"conf={d.get('confidence')} -> approved (headless)")
-    return {}
+                  f"conf={d.get('confidence')} -> auto-approved (headless)")
+        return {}
+
+    # pause for a human (needs a checkpointer at compile time — see build_graph)
+    review = interrupt({
+        "action": "approve_blocks",
+        "pending": [{
+            "eid": d.get("eid"),
+            "src_ip": d.get("src_ip") or by_eid.get(str(d.get("eid", "")), {}).get("src_ip", ""),
+            "attack_type": d.get("attack_type"),
+            "confidence": d.get("confidence"),
+            "analyst_note": d.get("analyst_note", ""),
+        } for d in pending],
+    })
+
+    approvals = review if isinstance(review, dict) else {}
+    for d in decisions:
+        eid = str(d.get("eid", ""))
+        if needs_human(d.get("action", "log"), d.get("confidence", 0.0)) \
+                and approvals.get(eid) == "deny":
+            print(f"[GATE] human DENIED block eid={eid} -> downgraded to warn")
+            d["action"] = "warn"
+    return {"decisions": decisions}
 
 
 def act_node(state: AgentState) -> dict:
@@ -253,7 +285,10 @@ def act_node(state: AgentState) -> dict:
     return {"decided_eids": list(returned)}
 
 
-def build_graph():
+def build_graph(checkpointer=None):
+    """Compile the agent graph. Pass a checkpointer (e.g. MemorySaver) to enable
+    the interrupt()-based HITL gate; the headless benchmark path leaves it None
+    and relies on AUTO_APPROVE so the gate never interrupts."""
     g = StateGraph(AgentState)
     g.add_node("triage", triage_node)
     g.add_node("investigate", investigate_node)
@@ -265,4 +300,4 @@ def build_graph():
     g.add_edge("investigate", "risk_gate")
     g.add_edge("risk_gate", "act")
     g.add_edge("act", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
