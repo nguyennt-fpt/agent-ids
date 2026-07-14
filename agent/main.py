@@ -136,7 +136,8 @@ def run() -> None:
         else:
             todo = collect_agent_events(alerts, decided)
             if todo:
-                result = app.invoke({"events": todo, "decisions": [], "decided_eids": []})
+                result = app.invoke({"events": todo, "decisions": [],
+                                     "ambiguous_eids": [], "decided_eids": []})
                 for eid in result.get("decided_eids", []):
                     decided.add(eid)
 
