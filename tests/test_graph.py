@@ -21,14 +21,24 @@ from langgraph.types import Command  # noqa: E402
 import gate  # noqa: E402
 import graph  # noqa: E402
 from schemas import Decision  # noqa: E402
+from tools.prompt_guard import UNTRUSTED_OPEN  # noqa: E402
+
+
+class _Replies(list):
+    """Scripted Ollama replies; `.seen` records the messages each call got."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen = []
 
 
 @pytest.fixture
 def ollama(monkeypatch):
     """Scripted Ollama replies: append a str (message content) or an Exception."""
-    replies = []
+    replies = _Replies()
 
     def fake_stream(self, messages, stop=None, **kwargs):
+        replies.seen.append(messages)
         r = replies.pop(0)
         if isinstance(r, Exception):
             raise r
@@ -114,10 +124,28 @@ def test_ambiguous_event_goes_through_investigate_tool_loop(ollama, recorded, mo
 
     _run(events=EVENTS[:1])
 
-    assert any(isinstance(m, ToolMessage) for m in final.seen[0])   # tool output fed back
+    tool_msgs = [m for m in final.seen[0] if isinstance(m, ToolMessage)]
+    assert tool_msgs                                                 # tool output fed back...
+    assert all(m.content.startswith(UNTRUSTED_OPEN) for m in tool_msgs)   # ...fenced (G3)
+    assert "9.9.9.9" in tools.seen[0][1].content                     # told which src_ip (G2)
     assert len(recorded) == 1
     assert recorded[0]["eid"] == "e1"                                # model's eid overridden
     assert recorded[0]["action"] == "block"
+
+
+def test_memory_lessons_are_fenced_data_not_system_messages(ollama, recorded, monkeypatch):
+    monkeypatch.setattr(graph, "MEMORY_ENABLED", True)
+    monkeypatch.setattr(graph, "retrieve_similar", lambda query, k: ["case"])
+    monkeypatch.setattr(graph, "format_for_prompt", lambda cases: "LESSON-TEXT")
+    monkeypatch.setattr(graph, "add_experience", lambda **kw: None)
+    ollama.append(json.dumps({"decisions": [_dec("e1", "block")]}))
+    _run(events=EVENTS[:1])
+
+    sent = ollama.seen[0]
+    system_texts = [m.content for m in sent if m.type == "system"]
+    assert len(system_texts) == 1 and "LESSON-TEXT" not in system_texts[0]
+    human = [m.content for m in sent if m.type == "human"][0]
+    assert f"{UNTRUSTED_OPEN}\nLESSON-TEXT" in human
 
 
 @pytest.mark.parametrize("answer,want", [("deny", "warn"), ("approve", "block")])

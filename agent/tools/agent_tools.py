@@ -20,23 +20,34 @@ NGINX_LOG = os.getenv("NGINX_LOG", "/var/log/nginx/access.log")
 
 
 @tool
-def get_recent_alerts(n: int = 20) -> str:
-    """Return the last n Suricata IDS alerts as JSON. Use this to check whether a
-    source IP has *other* recent attack alerts — repeated alerts from one IP
-    raise confidence that an ambiguous request is malicious."""
-    alerts = read_recent_alerts(EVE_LOG, n=n)
-    return json.dumps([normalize_alert(a) for a in alerts], ensure_ascii=False)
+def get_recent_alerts(src_ip: str, n: int = 20) -> str:
+    """Return the last n Suricata IDS alerts FROM src_ip as JSON (pass the
+    event's src_ip). Use this to check whether that source has *other* recent
+    attack alerts — repeated alerts from one IP raise confidence that an
+    ambiguous request is malicious; none is evidence for benign."""
+    alerts = [normalize_alert(a) for a in read_recent_alerts(EVE_LOG, n=5000)]
+    mine = [a for a in alerts if a["src_ip"] == src_ip][-n:]
+    return json.dumps(mine, ensure_ascii=False)
 
 
 @tool
-def get_nginx_logs(lines: int = 50) -> str:
-    """Return the last N nginx access-log lines as JSON. Use this to see the
-    request *sequence* from an IP: many fast requests, or probing lots of paths,
-    signals scanning / brute force even when a single request looks benign."""
-    if not os.path.exists(NGINX_LOG):
+def get_nginx_logs(src_ip: str, lines: int = 50) -> str:
+    """Return the last N nginx access-log entries FROM src_ip as JSON lines
+    (pass the event's src_ip). Use this to see that source's request
+    *sequence*: many fast requests, or probing lots of paths, signals scanning /
+    brute force even when a single request looks benign."""
+    # isfile: the stock image's access.log is a symlink to /dev/stdout (blocks on open)
+    if not os.path.isfile(NGINX_LOG):
         return "nginx_log_not_found"
+    mine = []
     with open(NGINX_LOG, "r", encoding="utf-8", errors="replace") as f:
-        return "".join(f.readlines()[-lines:])
+        for line in f:
+            try:
+                if json.loads(line).get("remote_addr") == src_ip:
+                    mine.append(line.strip())
+            except json.JSONDecodeError:
+                continue
+    return "\n".join(mine[-lines:])
 
 
 @tool
