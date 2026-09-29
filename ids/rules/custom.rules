@@ -60,8 +60,8 @@ alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
 alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
   (msg:"DVWA Command Injection - Shell metacharacters"; \
   flow:established,to_server; \
-  http.request_body; pcre:"/(;|\||&&|`|\$\()(\s*)(cat|ls|id|whoami|pwd|uname|wget|curl|bash|sh|python|perl|ruby|nc|netcat)/"; \
-  classtype:web-application-attack; sid:9000020; rev:1;)
+  http.request_body; pcre:"/(\;|\||&&|`|\$\()(\s*)(cat|ls|id|whoami|pwd|uname|wget|curl|bash|sh|python|perl|ruby|nc|netcat)/"; \
+  classtype:web-application-attack; sid:9000020; rev:2;)
 
 alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
   (msg:"DVWA Command Injection - /etc/passwd read attempt"; \
