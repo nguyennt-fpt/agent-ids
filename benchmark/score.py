@@ -177,7 +177,9 @@ def main() -> None:
     mitre_acc = mitre_hit / mitre_total if mitre_total else 0.0
 
     row = {
-        "mode": args.mode, "run": args.run, "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "mode": args.mode, "run": args.run,
+        "split": ",".join(sorted({g.get("split", "") for g in gt.values()})),
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "precision": round(precision, 4), "recall": round(recall, 4),
         "f1": round(f1, 4), "fpr": round(fpr, 4), "accuracy": round(accuracy, 4),
         "mttb_s": round(mttb, 3), "recall_evasion": round(recall_evasion, 4),

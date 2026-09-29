@@ -1,0 +1,83 @@
+"""Corpus v2 framework (docs/CORPUS_V2.md): deterministic build, family-level
+dev/test split, actors, POST forms; replay request construction."""
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "benchmark", "attack_corpus"))
+
+import build_corpus  # noqa: E402
+from replay import build_request, select_rows  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def rows():
+    return build_corpus.build()
+
+
+def test_build_is_deterministic(rows):
+    again = build_corpus.build()
+    assert [(r["eid"], r["split"], r["actor_ip"], r["seq"]) for r in rows] == \
+           [(r["eid"], r["split"], r["actor_ip"], r["seq"]) for r in again]
+
+
+def test_eids_unique_and_seq_is_a_permutation(rows):
+    assert len({r["eid"] for r in rows}) == len(rows)
+    assert sorted(r["seq"] for r in rows) == list(range(len(rows)))
+
+
+def test_no_family_on_both_sides_of_the_split(rows):
+    sides: dict[str, set] = {}
+    for r in rows:
+        sides.setdefault(r["family"], set()).add(r["split"])
+    assert all(len(s) == 1 for s in sides.values())
+
+
+def test_both_splits_hold_every_label(rows):
+    got = {(r["split"], r["label"]) for r in rows}
+    assert got == {("dev", "malicious"), ("dev", "benign"),
+                   ("test", "malicious"), ("test", "benign")}
+
+
+def test_paths_are_dvwa_root_paths(rows):
+    assert not any(r["path"].startswith("/dvwa") for r in rows)
+
+
+def test_exec_page_is_always_a_post_form(rows):
+    execs = [r for r in rows if r["path"] == "/vulnerabilities/exec/"]
+    assert execs and all(r["method"] == "POST" and r["body"].get("Submit") for r in execs)
+    assert any(r["label"] == "benign" for r in execs)       # method can't leak the label
+
+
+def test_actors(rows):
+    for r in rows:
+        if r["label"] == "malicious" or r["group"] == "benign_normal":
+            continue
+        assert r["actor_ip"] in build_corpus.USERS            # fp_bait comes from users
+    assert all(r["actor_ip"] in build_corpus.ATTACKERS
+               for r in rows if r["label"] == "malicious")
+
+
+def test_build_request_sets_xff_body_and_eid():
+    row = {"eid": "abc", "method": "POST", "path": "/vulnerabilities/exec/",
+           "params": {}, "body": {"ip": "8.8.8.8", "Submit": "Submit"},
+           "actor_ip": "198.51.100.10", "user_agent": "UA"}
+    method, url, kw = build_request(row, "http://h/")
+    assert (method, url) == ("POST", "http://h/vulnerabilities/exec/")
+    assert kw["params"] == {"eid": "abc"}
+    assert kw["headers"]["X-Forwarded-For"] == "198.51.100.10"
+    assert kw["data"] == {"ip": "8.8.8.8", "Submit": "Submit"}
+
+
+def test_v1_row_replays_without_xff_or_body():
+    method, _, kw = build_request({"eid": "e", "path": "/x", "params": {"a": "1"}}, "http://h")
+    assert method == "GET" and "X-Forwarded-For" not in kw["headers"] and "data" not in kw
+
+
+def test_select_rows_filters_split_and_orders_by_seq():
+    rows = [{"eid": "b", "split": "dev", "seq": 2}, {"eid": "a", "split": "test", "seq": 0},
+            {"eid": "c", "split": "dev", "seq": 1}]
+    assert [r["eid"] for r in select_rows(rows, "dev")] == ["c", "b"]
+    assert [r["eid"] for r in select_rows(rows, None)] == ["a", "c", "b"]

@@ -12,6 +12,9 @@ N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
 read -r -a MODES <<< "${MODES:-rule_based naive agent}"   # e.g. MODES=agent to rerun one mode
+# corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers
+SPLIT_ARGS=()
+[ -n "${SPLIT:-}" ] && SPLIT_ARGS=(--split "$SPLIT")
 RAW="$HERE/report/summary_raw.csv"
 
 mkdir -p "$HERE/report"
@@ -33,7 +36,7 @@ for mode in "${MODES[@]}"; do
     RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
     sleep 12                      # agent boot (+ ollama readiness check)
     reset_db                      # clear prior decisions so runs don't mix
-    "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY"
+    "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY" "${SPLIT_ARGS[@]}"
     "$PY" "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW"
   done
 done

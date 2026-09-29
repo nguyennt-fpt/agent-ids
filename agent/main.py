@@ -93,7 +93,9 @@ def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
             events.append({
                 "eid": eid, "src_ip": rec.get("remote_addr", ""), "source": "web",
                 "signature": "", "severity": "", "method": rec.get("method", ""),
-                "url": uri, "user_agent": rec.get("http_user_agent", ""), "payload": "",
+                "url": uri, "user_agent": rec.get("http_user_agent", ""),
+                # POST form body (nginx logs $request_body) — same 300-char cap as IDS payloads
+                "payload": (rec.get("request_body", "") or "")[:300],
             })
 
     todo, seen = [], set()

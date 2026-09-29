@@ -115,10 +115,10 @@ alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
 alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
   (msg:"DVWA Brute Force - Rapid login attempts"; \
   flow:established,to_server; \
-  http.uri; content:"/dvwa/login.php"; \
+  http.uri; content:"/login.php"; \
   http.method; content:"POST"; \
   threshold: type both, track by_src, count 10, seconds 60; \
-  classtype:attempted-user; sid:9000050; rev:1;)
+  classtype:attempted-user; sid:9000050; rev:2;)
 
 alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
   (msg:"DVWA Scanner - Nikto/sqlmap User-Agent detected"; \

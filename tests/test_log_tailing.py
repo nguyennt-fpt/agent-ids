@@ -58,6 +58,18 @@ def test_agent_ignores_prior_run_web_lines(tmp_path, monkeypatch):
     assert main.collect_agent_events([], decided=set()) == []   # not re-read
 
 
+def test_web_event_carries_logged_post_body(tmp_path, monkeypatch):
+    log = str(tmp_path / "access.json.log")
+    monkeypatch.setattr(main, "NGINX_LOG", log)
+    prime_position(log)
+    _append(log, json.dumps({"remote_addr": "198.51.100.10", "method": "POST",
+                             "uri": "/vulnerabilities/exec/?eid=e1",
+                             "request_body": "ip=8.8.8.8&Submit=Submit"}) + "\n")
+    (ev,) = main.collect_agent_events([], decided=set())
+    assert ev["payload"] == "ip=8.8.8.8&Submit=Submit"
+    assert ev["src_ip"] == "198.51.100.10"
+
+
 def test_web_line_dropped_when_ids_alert_has_same_eid(tmp_path, monkeypatch):
     log = str(tmp_path / "access.json.log")
     monkeypatch.setattr(main, "NGINX_LOG", log)

