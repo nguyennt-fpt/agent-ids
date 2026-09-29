@@ -63,7 +63,7 @@ Rule tự sinh đi qua `agent/tools/rule_validator.py` (4 gate): syntax → shad
 
 ### Chạy tay từng bước (debug)
 ```bash
-RESPONSE_MODE=agent BLOCK_ENABLED=false docker compose up -d agent
+RESPONSE_MODE=agent BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
 python replay.py --target http://localhost --delay 0.5
 python score.py --mode agent --run 1
 python plot.py
@@ -77,4 +77,8 @@ python plot.py
 ## Lưu ý
 - `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
 - Corpus hiện là **seed (~60)**. Trước khi chạy số liệu cuối trên EC2, scale mỗi nhóm lên từ cùng nguồn công khai (xem `attack_corpus/build_corpus.py`, mục tiêu ~150).
-- `score.py` tự **chờ DB ổn định** (`--settle`) trước khi chấm, tránh race với chu kỳ poll 5s của agent.
+- `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định
+  (tối đa `--timeout`, mặc định 600s; hết giờ thì in số `eid` thiếu); `rule_based`/`naive` chờ số row
+  ổn định `--settle` giây (mặc định 15s).
+- Mỗi run tạo lại container agent (`--force-recreate`) → tập `decided` và offset đọc log bắt đầu mới;
+  agent đọc cả `eve.json` lẫn nginx log từ cuối file lúc khởi động (không xử lý lại traffic run trước).

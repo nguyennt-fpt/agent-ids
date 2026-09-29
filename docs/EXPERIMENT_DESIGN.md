@@ -25,7 +25,7 @@ Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
 ```
 
 - `rule_based`/`naive` chỉ thấy `eve.json` → kế thừa recall của Suricata.
-- `agent` đọc thêm `access.log` (MCP tool `get_nginx_logs`) → bắt cái Suricata không alert → ↑recall. Đây là chỗ "IDS và agent bổ trợ nhau".
+- `agent` đọc thêm nginx access log (`main.collect_agent_events`, nguồn "web") → bắt cái Suricata không alert → ↑recall. Đây là chỗ "IDS và agent bổ trợ nhau".
 
 ## 3 cấu hình so sánh (biến `RESPONSE_MODE`)
 

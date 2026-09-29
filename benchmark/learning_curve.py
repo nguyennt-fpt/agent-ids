@@ -32,7 +32,7 @@ EVENTS_DB = os.path.join(AGENT_DATA, "events.db")
 os.environ["MEMORY_DB"] = EVENTS_DB
 sys.path.insert(0, HERE)                                   # score.py
 sys.path.insert(0, os.path.join(ROOT, "agent"))            # tools.memory
-from score import load_sent, fetch_decisions               # noqa: E402
+from score import load_sent, fetch_decisions, wait_for_decisions  # noqa: E402
 from tools.memory import record_feedback                   # noqa: E402
 
 
@@ -108,14 +108,15 @@ def run(epochs: int, memory: str, target: str, delay: float):
         print(f"\n===== memory={memory} epoch={epoch}/{epochs} =====")
         env = {**os.environ, "RESPONSE_MODE": "agent", "BLOCK_ENABLED": "false",
                "MEMORY_ENABLED": "true" if mem_on else "false", "EPOCH": str(epoch)}
-        sh(["docker", "compose", "up", "-d", "agent"], env=env)
+        sh(["docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "agent"],
+           env=env)
         time.sleep(12)
         reset_events_only()
         subprocess.run([sys.executable, os.path.join(HERE, "replay.py"),
                         "--target", target, "--delay", str(delay)], check=False)
-        time.sleep(20)  # let agent finish processing this epoch
 
         sent = load_sent(os.path.join(REPORT, "sent.jsonl"))
+        wait_for_decisions(EVENTS_DB, "agent", sent, settle_s=15, timeout_s=600)
         dec = fetch_decisions(EVENTS_DB, "agent")
         recall, fpr = epoch_metrics(sent, dec)
         rows.append({"epoch": epoch, "recall": round(recall, 4), "fpr": round(fpr, 4)})

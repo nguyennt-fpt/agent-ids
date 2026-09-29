@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -21,6 +22,14 @@ REPORT_DIR = os.path.join(HERE, "report")
 DEFAULT_DB = os.path.join(HERE, "..", "agent", "data", "events.db")
 
 MALICIOUS_ACTIONS = ("block", "warn")
+
+_MITRE_ID = re.compile(r"T\d{4}(?:\.\d{3})?", re.IGNORECASE)
+
+
+def mitre_id(s: str) -> str:
+    """Technique id out of free text: 'T1190 (Exploit Public-Facing App)' -> 'T1190'."""
+    m = _MITRE_ID.search(s or "")
+    return m.group(0).upper() if m else ""
 
 
 def _to_epoch(iso_ts: str) -> float:
@@ -63,9 +72,36 @@ def fetch_decisions(db: str, mode: str) -> dict:
     return out
 
 
-def settle(db: str, mode: str, settle_s: float, timeout_s: float) -> None:
-    """Wait until the decision count for this mode stops growing."""
+def _decided_eids(db: str, mode: str) -> set[str]:
+    conn = sqlite3.connect(db)
+    rows = conn.execute("SELECT DISTINCT eid FROM events WHERE mode=?", (mode,)).fetchall()
+    conn.close()
+    return {r[0] for r in rows if r[0]}
+
+
+def wait_for_decisions(db: str, mode: str, sent: dict,
+                       settle_s: float, timeout_s: float) -> None:
+    """Block until this mode's decisions are complete, then return.
+
+    agent: it records a decision for every request it sees, so wait until every
+    request that got an HTTP response has one — a single LLM invoke can outlast
+    any fixed "no new rows" window. rule_based/naive only record alerted
+    requests, so the expected count is unknown; they have no LLM latency, so
+    "row count stable for settle_s" (several poll cycles) is enough.
+    """
     deadline = time.time() + timeout_s
+    if mode == "agent":
+        expected = {eid for eid, g in sent.items() if isinstance(g.get("status"), int)}
+        while True:
+            missing = expected - _decided_eids(db, mode)
+            if not missing:
+                return
+            if time.time() >= deadline:
+                print(f"[SCORE] WARNING: timeout, {len(missing)}/{len(expected)} eids "
+                      f"have no agent decision (scored as benign)")
+                return
+            time.sleep(2)
+
     last, stable_since = -1, time.time()
     while time.time() < deadline:
         conn = sqlite3.connect(db)
@@ -85,12 +121,13 @@ def main() -> None:
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--sent", default=os.path.join(REPORT_DIR, "sent.jsonl"))
     ap.add_argument("--out", default=os.path.join(REPORT_DIR, "summary_raw.csv"))
-    ap.add_argument("--settle", type=float, default=15, help="DB-stable seconds")
-    ap.add_argument("--timeout", type=float, default=300)
+    ap.add_argument("--settle", type=float, default=15,
+                    help="DB-stable seconds (rule_based/naive)")
+    ap.add_argument("--timeout", type=float, default=600)
     args = ap.parse_args()
 
-    settle(args.db, args.mode, args.settle, args.timeout)
     gt = load_sent(args.sent)
+    wait_for_decisions(args.db, args.mode, gt, args.settle, args.timeout)
     dec = fetch_decisions(args.db, args.mode)
 
     tp = fp = fn = tn = 0
@@ -114,7 +151,7 @@ def main() -> None:
                     mttbs.append(dt)
             if g.get("mitre"):
                 mitre_total += 1
-                mitre_hit += int(d.get("mitre", "") == g["mitre"])
+                mitre_hit += int(mitre_id(d.get("mitre", "")) == mitre_id(g["mitre"]))
         elif gt_mal and not pred_mal:
             fn += 1
         elif (not gt_mal) and pred_mal:

@@ -37,16 +37,17 @@ before deciding — never to take action:
 ## Alert triage enrichment (act like a SOC L1 analyst)
 
 For every event classified as an attack, also provide:
-- **`mitre_technique`** — the MITRE ATT&CK technique ID. Reference for web attacks:
-  | attack | technique |
-  |---|---|
-  | SQL injection | T1190 (Exploit Public-Facing Application) |
-  | XSS | T1059.007 (JavaScript) |
-  | Command injection | T1059 (Command and Scripting Interpreter) |
-  | LFI / path traversal | T1083 (File and Directory Discovery) |
-  | RFI | T1190 |
-  | Brute force | T1110 |
-  | Scanner / recon | T1595 (Active Scanning) |
+- **`mitre_technique`** — the MITRE ATT&CK technique ID **only** (e.g. `T1190`): no name, no
+  parentheses, and no sub-technique unless the table lists one. Use the ID from this table:
+  | attack | ID | technique name (for reference — do not output) |
+  |---|---|---|
+  | SQL injection | T1190 | Exploit Public-Facing Application |
+  | XSS | T1059.007 | JavaScript |
+  | Command injection | T1059 | Command and Scripting Interpreter |
+  | LFI / path traversal | T1083 | File and Directory Discovery |
+  | RFI | T1190 | Exploit Public-Facing Application |
+  | Brute force | T1110 | Brute Force |
+  | Scanner / recon | T1595 | Active Scanning |
 - **`severity`** — one of `low` / `medium` / `high` / `critical`.
 - **`analyst_note`** — 1–2 sentences a human analyst can act on (what, why, recommended action).
 

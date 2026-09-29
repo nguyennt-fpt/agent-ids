@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
 
 # ─── Agent runtime data (SQLite DB + datasets copied at runtime) ────────────────
 agent/data/*.db

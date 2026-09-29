@@ -47,24 +47,30 @@ def prime_position(path: str) -> None:
     _last_pos[path] = os.path.getsize(path) if os.path.exists(path) else 0
 
 
-def _tail_new_lines(path: str) -> list[str]:
+def tail_new_lines(path: str) -> list[str]:
+    """Complete lines appended since the last call (offset-based, like `tail -f`).
+
+    Each line is returned exactly once, so a trailing line the writer hasn't
+    finished yet (no `\\n`) is left for the next call instead of being parsed
+    half-written and lost.
+    """
     if not os.path.exists(path):
         return []
     pos = _last_pos.get(path, 0)
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    with open(path, "rb") as f:
         f.seek(0, 2)
-        size = f.tell()
-        if size < pos:
+        if f.tell() < pos:          # truncated / rotated -> start over
             pos = 0
         f.seek(pos)
-        lines = f.readlines()
-        _last_pos[path] = f.tell()
-    return lines
+        data = f.read()
+    end = data.rfind(b"\n") + 1
+    _last_pos[path] = pos + end
+    return data[:end].decode("utf-8", errors="replace").split("\n")[:-1]
 
 
 def read_new_alerts(eve_path: str, limit: int = 50) -> list[dict]:
     """Return new EVE JSON alert events since last call."""
-    lines = _tail_new_lines(eve_path)
+    lines = tail_new_lines(eve_path)
     alerts = []
     for line in lines:
         line = line.strip()

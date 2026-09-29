@@ -25,8 +25,11 @@ c=sqlite3.connect(d);c.execute('DELETE FROM events');c.commit();c.close()" || tr
 for mode in "${MODES[@]}"; do
   for run in $(seq 1 "$N"); do
     echo "==================== mode=$mode run=$run/$N ===================="
-    # restart agent with this mode; never firewall the replay source during benchmark
-    RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d agent
+    # restart agent with this mode; never firewall the replay source during benchmark.
+    # --force-recreate: a plain `up -d` with an unchanged env is a no-op, so runs 2..N
+    # would reuse the process whose `decided` set already holds every corpus eid.
+    # --no-deps: leave ollama (and its loaded model) alone.
+    RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
     sleep 12                      # agent boot (+ ollama readiness check)
     reset_db                      # clear prior decisions so runs don't mix
     python "$HERE/replay.py" --target "$TARGET" --delay "$DELAY"

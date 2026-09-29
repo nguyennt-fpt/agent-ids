@@ -26,9 +26,9 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from actions import record_decision
+from actions import SEV_MAP, guess_attack, record_decision, rule_flags
 from gate import classify_risk, needs_human
-from schemas import Decision, DecisionList
+from schemas import Decision, DecisionList, salvage_decisions
 from tools.agent_tools import READ_TOOLS
 from tools.memory import add_experience, format_for_prompt, retrieve_similar
 from tools.prompt_guard import wrap_untrusted
@@ -48,7 +48,8 @@ AMBIG_HIGH = float(os.getenv("AMBIG_HIGH", "0.75"))
 INVESTIGATE_MAX_EVENTS = int(os.getenv("INVESTIGATE_MAX_EVENTS", "5"))
 INVESTIGATE_MAX_STEPS = int(os.getenv("INVESTIGATE_MAX_STEPS", "3"))
 
-SYSTEM_PROMPT = Path("/app/prompts/system.md").read_text(encoding="utf-8")
+# next to this file (/app/prompts in the container) so the graph imports offline too
+SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "system.md").read_text(encoding="utf-8")
 
 _triage_llm = None
 _tools_llm = None
@@ -56,15 +57,17 @@ _final_llm = None
 
 
 def _structured_llm():
-    """Batch classifier bound to the Pydantic list schema (bài 07)."""
+    """Batch classifier bound to the Pydantic list schema (bài 07). include_raw
+    keeps the model's text when the whole list fails to parse, so triage_node
+    can salvage the valid items instead of losing the batch."""
     global _triage_llm
     if _triage_llm is None:
         _triage_llm = ChatOllama(
             model=OLLAMA_MODEL, base_url=OLLAMA_HOST, temperature=0.1,
             # without an explicit budget Ollama truncates the JSON so most events
-            # in a batch lose their decision and default to benign (kills recall).
+            # in a batch lose their decision (kills recall).
             num_predict=4096, num_ctx=8192,
-        ).with_structured_output(DecisionList)
+        ).with_structured_output(DecisionList, method="json_schema", include_raw=True)
     return _triage_llm
 
 
@@ -121,8 +124,15 @@ def triage_node(state: AgentState) -> dict:
     )))
 
     try:
-        result = _structured_llm().invoke(messages)
-        decisions = [d.model_dump(mode="json") for d in result.decisions]
+        out = _structured_llm().invoke(messages)
+        if out.get("parsed") is not None:
+            items = out["parsed"].decisions
+        else:   # truncated / one bad item: keep every valid decision
+            content = getattr(out.get("raw"), "content", "")
+            items = salvage_decisions(content if isinstance(content, str) else "")
+            print(f"[AGENT] triage output did not parse ({out.get('parsing_error')}); "
+                  f"salvaged {len(items)}/{len(todo)} decision(s)")
+        decisions = [d.model_dump(mode="json") for d in items]
     except Exception as e:
         print(f"[AGENT] triage structured-output error: {e}")
         decisions = []
@@ -245,7 +255,11 @@ def risk_gate_node(state: AgentState) -> dict:
 
 def act_node(state: AgentState) -> dict:
     """Record decisions (block/log via direct tools) + write experience memory.
-    Events skipped by the model default to benign so they aren't reprocessed."""
+
+    An event the model gave no decision for is never defaulted to benign. An
+    IDS-flagged one falls back to the rule-based verdict — as `warn`, not
+    `block`: nobody (model or human gate) vetted a firewall action. A web-only
+    one is left out of decided_eids so the caller retries it."""
     todo = state["events"]
     decisions = state.get("decisions", [])
     by_eid = {e["eid"]: e for e in todo if e.get("eid")}
@@ -272,15 +286,20 @@ def act_node(state: AgentState) -> dict:
 
     for e in todo:
         eid = e.get("eid", "")
-        if eid and eid not in returned:
-            record_decision(eid=eid, src_ip=e.get("src_ip", ""), attack="unknown",
-                            action="log", confidence=0.0,
-                            reason="no LLM decision (default benign)", mode="agent")
-            returned.add(eid)
-            if MEMORY_ENABLED:
-                add_experience(eid=eid, signature=e.get("signature", ""),
-                               payload=e.get("payload", "") or e.get("url", ""),
-                               attack_type="unknown", decision="log", epoch=EPOCH)
+        if not eid or eid in returned or e.get("source") != "ids":
+            continue
+        sev = e.get("severity")
+        action = "warn" if rule_flags(sev) else "log"
+        attack = guess_attack(e.get("signature", "")) if action == "warn" else "none"
+        record_decision(eid=eid, src_ip=e.get("src_ip", ""), attack=attack,
+                        action=action, confidence=0.0,
+                        reason=f"no LLM decision -> rule-based fallback (severity={sev})",
+                        mode="agent", severity=SEV_MAP.get(sev, "low"))
+        returned.add(eid)
+        if MEMORY_ENABLED:
+            add_experience(eid=eid, signature=e.get("signature", ""),
+                           payload=e.get("payload", "") or e.get("url", ""),
+                           attack_type=attack, decision=action, epoch=EPOCH)
 
     return {"decided_eids": list(returned)}
 

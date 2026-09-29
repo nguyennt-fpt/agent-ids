@@ -27,6 +27,14 @@ def is_private(ip: str) -> bool:
     return any(ip.startswith(p) for p in PRIVATE_PREFIXES)
 
 
+def rule_flags(severity) -> bool:
+    """The rule_based engine's verdict on an IDS alert: attack if severity <= 2."""
+    try:
+        return int(severity) <= 2
+    except (TypeError, ValueError):
+        return False
+
+
 def guess_attack(signature: str) -> str:
     s = signature.lower()
     if "sql" in s:

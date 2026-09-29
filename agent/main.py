@@ -15,9 +15,9 @@ import time
 
 import httpx
 
-from actions import SEV_MAP, guess_attack, record_decision
+from actions import SEV_MAP, guess_attack, record_decision, rule_flags
 from tools.alert_reader import (
-    extract_eid, normalize_alert, prime_position, read_new_alerts,
+    extract_eid, normalize_alert, prime_position, read_new_alerts, tail_new_lines,
 )
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -26,6 +26,11 @@ RESPONSE_MODE = os.getenv("RESPONSE_MODE", "agent")
 BLOCK_ENABLED = os.getenv("BLOCK_ENABLED", "true").lower() == "true"
 EVE_LOG = os.getenv("EVE_LOG", "/var/log/suricata/eve.json")
 NGINX_LOG = os.getenv("NGINX_LOG", "/var/log/nginx/access.log")
+# events per triage call: output grows ~100 tokens/decision and past num_predict
+# (4096) the JSON is cut off; input must also fit num_ctx (8192) with the prompt.
+TRIAGE_BATCH = int(os.getenv("TRIAGE_BATCH", "15"))
+# retries for a web-only event the model returned no decision for (then fail closed)
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 
 
 # ─── Rule-based / naive engines (no LLM) ───────────────────────────────────────
@@ -40,7 +45,7 @@ def handle_rule_based(alerts: list[dict], mode: str, decided: set) -> None:
         if mode == "naive":
             action = "block"                          # block on any alert
         else:
-            action = "block" if sev <= 2 else "log"   # rule_based: severity gate
+            action = "block" if rule_flags(sev) else "log"   # rule_based: severity gate
         # rule-based IDS gives a Suricata severity but no semantic MITRE/notes
         record_decision(eid=eid, src_ip=a.get("src_ip", ""), attack=guess_attack(sig),
                         action=action, confidence=1.0,
@@ -70,11 +75,10 @@ def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
 
     # isfile (not exists): the stock nginx image symlinks access.log -> /dev/stdout;
     # opening that char device blocks forever. isfile is False for it, so we skip
-    # it safely and only read a real access-log file.
+    # it safely and only read a real access-log file. Read by offset (primed at
+    # boot) so each request is seen once and a prior run's lines are never replayed.
     if os.path.isfile(NGINX_LOG):
-        with open(NGINX_LOG, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()[-100:]
-        for line in lines:
+        for line in tail_new_lines(NGINX_LOG):
             line = line.strip()
             if not line:
                 continue
@@ -103,6 +107,42 @@ def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
     return todo
 
 
+def process_agent_events(app, todo: list[dict], decided: set, retries: dict) -> None:
+    """Run the graph over `todo` in chunks of TRIAGE_BATCH events.
+
+    The graph leaves out of decided_eids only web-only events the model gave no
+    decision for (IDS events fall back to the rule verdict inside it). Those
+    are kept in `retries` (eid -> (event, attempts)) and retried *alone* on the
+    next polls — alone, so an event that keeps breaking the model's output
+    can't take a batch down with it. After MAX_RETRIES they fail closed as
+    `warn`; bounded, so such a payload can't stall the loop forever.
+    """
+    for e in todo:
+        retries.pop(e.get("eid", ""), None)     # a fresh copy (e.g. now IDS-flagged) wins
+    batches = [[ev] for ev, _ in retries.values()]
+    batches += [todo[i:i + TRIAGE_BATCH] for i in range(0, len(todo), TRIAGE_BATCH)]
+
+    for batch in batches:
+        result = app.invoke({"events": batch, "decisions": [],
+                             "ambiguous_eids": [], "decided_eids": []})
+        done = set(result.get("decided_eids", []))
+        decided.update(done)
+        for ev in batch:
+            eid = ev.get("eid", "")
+            if not eid or eid in done:
+                retries.pop(eid, None)
+                continue
+            attempts = retries.get(eid, (ev, 0))[1] + 1
+            if attempts <= MAX_RETRIES:
+                retries[eid] = (ev, attempts)
+                continue
+            retries.pop(eid, None)
+            record_decision(eid=eid, src_ip=ev.get("src_ip", ""), attack="unknown",
+                            action="warn", confidence=0.0, mode="agent",
+                            reason=f"no LLM decision after {attempts} attempts (fail-closed)")
+            decided.add(eid)
+
+
 def wait_for_ollama() -> None:
     with httpx.Client() as c:
         for _ in range(60):
@@ -120,7 +160,9 @@ def run() -> None:
     print(f"[AGENT] Starting. mode={RESPONSE_MODE} poll={POLL_INTERVAL}s "
           f"block_enabled={BLOCK_ENABLED}")
     prime_position(EVE_LOG)          # skip a prior benchmark run's stale alerts
+    prime_position(NGINX_LOG)        # ...and its stale web-log lines
     decided: set[str] = set()
+    retries: dict[str, tuple[dict, int]] = {}
 
     app = None
     if RESPONSE_MODE == "agent":
@@ -135,11 +177,8 @@ def run() -> None:
             handle_rule_based(alerts, RESPONSE_MODE, decided)
         else:
             todo = collect_agent_events(alerts, decided)
-            if todo:
-                result = app.invoke({"events": todo, "decisions": [],
-                                     "ambiguous_eids": [], "decided_eids": []})
-                for eid in result.get("decided_eids", []):
-                    decided.add(eid)
+            if todo or retries:
+                process_agent_events(app, todo, decided, retries)
 
         time.sleep(POLL_INTERVAL)
 

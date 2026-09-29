@@ -14,6 +14,7 @@ import os
 import uuid
 
 os.environ["AUTO_APPROVE"] = "false"       # exercise the real gate
+os.environ["HITL_ALL_BLOCKS"] = "true"     # every block asks, even a >= 0.90 one
 os.environ.setdefault("MEMORY_ENABLED", "false")
 os.environ.setdefault("BLOCK_ENABLED", "false")   # demo: never actually firewall
 
@@ -39,8 +40,10 @@ def main() -> None:
     state = {"events": SAMPLE_EVENTS, "decisions": [],
              "ambiguous_eids": [], "decided_eids": []}
 
-    print("Running agent graph (AUTO_APPROVE=false)...")
+    print("Running agent graph (AUTO_APPROVE=false, HITL_ALL_BLOCKS=true)...")
     result = app.invoke(state, config)
+    if not result.get("__interrupt__"):
+        print("\nThe model proposed no block, so the gate had nothing to ask about.")
 
     # loop while the graph is paused waiting for human approval
     while result.get("__interrupt__"):

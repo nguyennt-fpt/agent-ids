@@ -120,7 +120,6 @@ services:
       - OLLAMA_MODEL=qwen2.5:14b
       - EVE_LOG=/var/log/suricata/eve.json
       - NGINX_LOG=/var/log/nginx/access.json.log
-      - BLOCK_CONFIDENCE_THRESHOLD=0.80
       - DASHBOARD_DB=/app/data/events.db
       - RESPONSE_MODE=${RESPONSE_MODE:-agent}
       - BLOCK_ENABLED=${BLOCK_ENABLED:-true}

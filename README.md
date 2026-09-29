@@ -241,11 +241,16 @@ agent-ids/
 │       └── suricata.rules        # ET Open rules (download ở Bước 4.1)
 ├── agent/
 │   ├── Dockerfile
-│   ├── main.py                   # Agent loop chính
-│   ├── mcp_server.py             # MCP server (8 tools)
+│   ├── main.py                   # Agent loop chính (poll log → graph / rule modes)
+│   ├── graph.py                  # LangGraph: triage → investigate → risk_gate → act
+│   ├── schemas.py                # Pydantic Decision (structured output)
+│   ├── actions.py                # Ghi quyết định + block IP
+│   ├── gate.py                   # Phân tầng rủi ro cho HITL
+│   ├── demo_hitl.py              # Demo người duyệt block
 │   ├── requirements.txt
 │   ├── tools/
-│   │   ├── alert_reader.py       # Đọc EVE JSON
+│   │   ├── agent_tools.py        # Tool chỉ-đọc cho vòng investigate
+│   │   ├── alert_reader.py       # Đọc EVE JSON / nginx log theo offset
 │   │   ├── firewall.py           # Wrapper iptables
 │   │   ├── ids_manager.py        # Quản lý rule Suricata
 │   │   └── notifier.py           # Ghi log + webhook
