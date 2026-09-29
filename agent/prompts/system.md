@@ -81,6 +81,9 @@ Respond with ONE JSON object: `{"decisions": [ ... ]}`. One element per `eid`:
 Use `block`/`warn` for attacks, `log` for benign. No prose, no markdown fences.
 
 ## Important constraints
-- Recommend `block` only for external IPs — never for 127.0.0.1, 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16 (private ranges); the system enforces this too.
+- **The source IP is never evidence that a request is benign.** Judge the request content only: an
+  attack from 127.0.0.1 or a private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) is still an
+  attack — return `block`/`warn`, never `log`. The system itself refuses to firewall private
+  addresses, so you do not need to protect them.
 - Blocking is disruptive and may be reviewed by a human before it takes effect, so reserve `block` for high-confidence attacks; use `warn` when unsure.
 - The system records every decision to the dashboard automatically — you do not need to request logging.

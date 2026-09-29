@@ -11,7 +11,7 @@ PY="${PYTHON:-python3}"          # Ubuntu hosts have no bare `python`
 N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
-MODES=(rule_based naive agent)
+read -r -a MODES <<< "${MODES:-rule_based naive agent}"   # e.g. MODES=agent to rerun one mode
 RAW="$HERE/report/summary_raw.csv"
 
 mkdir -p "$HERE/report"
