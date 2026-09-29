@@ -7,6 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT"
 
+PY="${PYTHON:-python3}"          # Ubuntu hosts have no bare `python`
 N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
@@ -32,10 +33,10 @@ for mode in "${MODES[@]}"; do
     RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
     sleep 12                      # agent boot (+ ollama readiness check)
     reset_db                      # clear prior decisions so runs don't mix
-    python "$HERE/replay.py" --target "$TARGET" --delay "$DELAY"
-    python "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW"
+    "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY"
+    "$PY" "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW"
   done
 done
 
-python "$HERE/plot.py"
+"$PY" "$HERE/plot.py"
 echo "Done. See $HERE/report/summary.csv and report/*.png"
