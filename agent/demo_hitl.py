@@ -16,7 +16,9 @@ import uuid
 os.environ["AUTO_APPROVE"] = "false"       # exercise the real gate
 os.environ["HITL_ALL_BLOCKS"] = "true"     # every block asks, even a >= 0.90 one
 os.environ.setdefault("MEMORY_ENABLED", "false")
-os.environ.setdefault("BLOCK_ENABLED", "false")   # demo: never actually firewall
+# demo: never actually firewall. Forced, not setdefault — the container env
+# already has BLOCK_ENABLED=true, so an approved demo block would hit iptables.
+os.environ["BLOCK_ENABLED"] = "false"
 
 from langgraph.checkpoint.memory import MemorySaver   # noqa: E402
 from langgraph.types import Command                   # noqa: E402
