@@ -74,7 +74,9 @@ EVASION = [
 # Benign requests that LOOK malicious (false-positive bait) — label benign
 FP_BAIT = [
     ("/vulnerabilities/sqli/", {"id": "What is a UNION SELECT statement in SQL?"}, "blog-style query w/ SQL keywords"),
-    ("/vulnerabilities/sqli/", {"id": "How to prevent ' OR 1=1 injection"}, "security article query"),
+    # an apostrophe in natural-language search text is the classic SQLi false
+    # positive; on the sqli page's numeric id it would really break out of the quote
+    ("/search", {"q": "How to prevent ' OR 1=1 injection"}, "article search with an apostrophe"),
     ("/search", {"q": "best practices to stop XSS <script> attacks"}, "search about XSS"),
     ("/search", {"q": "tutorial: command injection ; cat examples"}, "educational search"),
     ("/blog/post", {"title": "Understanding ../../ path traversal defense"}, "blog title w/ traversal text"),
@@ -105,9 +107,9 @@ POST_FORMS = {"/vulnerabilities/exec/"}
 
 
 def _row(group: str, label: str, attack_type: str, mitre: str, path: str,
-         params: dict, source: str, user_agent: str = _UA) -> dict:
+         params: dict, source: str) -> dict:
     row = dict(group=group, label=label, attack_type=attack_type, mitre=mitre,
-               method="GET", path=path, params=params, user_agent=user_agent,
+               method="GET", path=path, params=params, user_agent=_UA,
                source=source)
     if path in POST_FORMS:
         row.update(method="POST", params={}, body={**params, "Submit": "Submit"})
@@ -152,11 +154,9 @@ def build() -> list[dict]:
         rows.append(_row("clear_attack", "malicious", atk, mitre, path, {param: payload}, src))
     for atk, mitre, path, param, payload, src in EVASION:
         rows.append(_row("evasion", "malicious", atk, mitre, path, {param: payload}, src))
+    # (a lone scanner-UA request is recon, not benign — it belongs in the recon group)
     for path, params, src in FP_BAIT:
         rows.append(_row("fp_bait", "benign", "none", "", path, params, src))
-    # one fp_bait entry with scanner User-Agent but benign path
-    rows.append(_row("fp_bait", "benign", "none", "", "/index.php", {},
-                     "scanner UA, benign path", user_agent="sqlmap/1.7"))
     for path, params, src in BENIGN_NORMAL:
         rows.append(_row("benign_normal", "benign", "none", "", path, params, src))
 
