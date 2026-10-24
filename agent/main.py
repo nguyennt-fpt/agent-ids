@@ -4,6 +4,8 @@ RESPONSE_MODE selects the decision engine (for A/B benchmarking):
   - rule_based : Suricata alerts only; block if severity <= 2 (IDS + auto-response)
   - naive      : Suricata alerts only; block on ANY alert (over-blocking baseline)
   - agent      : LangGraph engine (LLM + memory) over eve.json + nginx access.log
+  - agent_ids  : ablation — the same LangGraph engine over eve.json ONLY, to tell
+                 "sees more (2nd source)" apart from "reasons better"
 
 Tools are called in-process (no MCP hot path). The agent engine is a LangGraph
 StateGraph; rule_based/naive stay pure Python and don't import LangChain.
@@ -57,9 +59,11 @@ def handle_rule_based(alerts: list[dict], mode: str, decided: set) -> None:
 
 # ─── Agent engine (2 sources -> LangGraph) ─────────────────────────────────────
 
-def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
-    """Source 1: Suricata alerts. Source 2: nginx requests Suricata did NOT alert
-    on. Returns the dedup'd todo list, skipping already-decided eids."""
+def collect_agent_events(alerts: list[dict], decided: set,
+                         include_web: bool = True) -> list[dict]:
+    """Source 1: Suricata alerts. Source 2 (unless include_web=False, the
+    agent_ids ablation): nginx requests Suricata did NOT alert on. Returns the
+    dedup'd todo list, skipping already-decided eids."""
     events: list[dict] = []
     alert_eids: set[str] = set()
     for a in alerts:
@@ -77,7 +81,7 @@ def collect_agent_events(alerts: list[dict], decided: set) -> list[dict]:
     # opening that char device blocks forever. isfile is False for it, so we skip
     # it safely and only read a real access-log file. Read by offset (primed at
     # boot) so each request is seen once and a prior run's lines are never replayed.
-    if os.path.isfile(NGINX_LOG):
+    if include_web and os.path.isfile(NGINX_LOG):
         for line in tail_new_lines(NGINX_LOG):
             line = line.strip()
             if not line:
@@ -140,7 +144,7 @@ def process_agent_events(app, todo: list[dict], decided: set, retries: dict) -> 
                 continue
             retries.pop(eid, None)
             record_decision(eid=eid, src_ip=ev.get("src_ip", ""), attack="unknown",
-                            action="warn", confidence=0.0, mode="agent",
+                            action="warn", confidence=0.0, mode=RESPONSE_MODE,
                             reason=f"no LLM decision after {attempts} attempts (fail-closed)")
             decided.add(eid)
 
@@ -167,7 +171,7 @@ def run() -> None:
     retries: dict[str, tuple[dict, int]] = {}
 
     app = None
-    if RESPONSE_MODE == "agent":
+    if RESPONSE_MODE in ("agent", "agent_ids"):
         wait_for_ollama()
         from graph import build_graph   # imported here so rule modes skip LangChain
         app = build_graph()
@@ -178,7 +182,8 @@ def run() -> None:
         if RESPONSE_MODE in ("rule_based", "naive"):
             handle_rule_based(alerts, RESPONSE_MODE, decided)
         else:
-            todo = collect_agent_events(alerts, decided)
+            todo = collect_agent_events(alerts, decided,
+                                        include_web=RESPONSE_MODE == "agent")
             if todo or retries:
                 process_agent_events(app, todo, decided, retries)
 

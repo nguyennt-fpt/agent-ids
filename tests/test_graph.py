@@ -97,6 +97,13 @@ def test_truncated_triage_is_salvaged_and_missing_events_never_default_benign(
     assert set(result["decided_eids"]) == {"e1", "e2", "e3", "e4"}   # e5 (web) -> caller retries
 
 
+def test_decisions_carry_the_run_mode_label(ollama, recorded, monkeypatch):
+    monkeypatch.setattr(graph, "MODE", "agent_ids")    # IDS-only ablation run
+    ollama.append(json.dumps({"decisions": [_dec("e1", "block")]}))
+    _run(events=[EVENTS[0], EVENTS[2]])                 # e3 has no decision -> fallback row
+    assert {r["mode"] for r in recorded} == {"agent_ids"} and len(recorded) == 2
+
+
 def test_triage_error_falls_back_for_ids_and_leaves_web_undecided(ollama, recorded):
     ollama.append(ConnectionError("ollama down"))
     result = _run()

@@ -1,10 +1,12 @@
 """A3 — per-mode wait before scoring (review bug C); A5 — MITRE id normalization."""
 
+import json
 import sqlite3
 import time
 
 import pytest
 
+from alerted_eids import alerted_eids
 from score import mitre_id, wait_for_decisions
 
 
@@ -36,6 +38,34 @@ def test_agent_waits_past_settle_window_then_times_out_and_reports(tmp_path, cap
     wait_for_decisions(db, "agent", SENT, settle_s=0, timeout_s=3)
     assert time.time() - t0 >= 3          # did not stop on "stable count"
     assert "1/2 eids have no agent decision" in capsys.readouterr().out
+
+
+def test_alerted_mode_waits_for_every_alerted_eid_not_a_quiet_db(tmp_path, capsys):
+    db = _db(tmp_path, [("agent_ids", "e1")])
+    t0 = time.time()
+    wait_for_decisions(db, "agent_ids", SENT, settle_s=0, timeout_s=3, alerted={"e1", "e2"})
+    assert time.time() - t0 >= 3                       # an LLM batch may still be running
+    assert "1/2 eids have no agent_ids decision" in capsys.readouterr().out
+    t0 = time.time()
+    wait_for_decisions(db, "agent_ids", SENT, settle_s=15, timeout_s=30, alerted={"e1"})
+    assert time.time() - t0 < 1
+
+
+def _alert_line(eid, ts):
+    return json.dumps({"event_type": "alert", "timestamp": ts,
+                       "http": {"url": f"/vulnerabilities/sqli/?id=1&eid={eid}"}})
+
+
+def test_alerted_eids_keeps_this_runs_alerts_only():
+    sent = {"e1": {"ts_sent": 1_790_000_000.0}, "e2": {"ts_sent": 1_790_000_005.0}}
+    lines = [
+        _alert_line("e1", "2026-09-21T10:00:00.000000+0000"),   # earlier run, same eid
+        _alert_line("e1", "2026-09-21T14:13:21.000000+0000"),   # this run (1_790_000_001)
+        _alert_line("zz", "2026-09-21T14:13:22.000000+0000"),   # not replayed
+        json.dumps({"event_type": "http", "http": {"url": "/?eid=e2"}}),
+        "not json",
+    ]
+    assert alerted_eids(lines, sent) == ["e1"]
 
 
 def test_rule_mode_returns_when_row_count_is_stable(tmp_path):

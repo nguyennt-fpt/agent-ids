@@ -11,7 +11,8 @@ PY="${PYTHON:-python3}"          # Ubuntu hosts have no bare `python`
 N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
-read -r -a MODES <<< "${MODES:-rule_based naive agent}"   # e.g. MODES=agent to rerun one mode
+# agent_ids = IDS-only ablation of the agent; e.g. MODES=agent to rerun one mode
+read -r -a MODES <<< "${MODES:-rule_based naive agent agent_ids}"
 # corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers
 SPLIT_ARGS=()
 [ -n "${SPLIT:-}" ] && SPLIT_ARGS=(--split "$SPLIT")
@@ -37,7 +38,12 @@ for mode in "${MODES[@]}"; do
     sleep 12                      # agent boot (+ ollama readiness check)
     reset_db                      # clear prior decisions so runs don't mix
     "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY" "${SPLIT_ARGS[@]}"
-    "$PY" "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW"
+    sleep 3                       # let Suricata flush the last alerts
+    # eids Suricata alerted on: what rule_based/naive/agent_ids must decide before scoring
+    docker compose exec -T agent tail -n 100000 /var/log/suricata/eve.json \
+      | "$PY" "$HERE/alerted_eids.py" --sent "$HERE/report/sent.jsonl" > "$HERE/report/alerted.json"
+    "$PY" "$HERE/score.py" --mode "$mode" --run "$run" --out "$RAW" \
+      --alerted "$HERE/report/alerted.json"
   done
 done
 

@@ -58,6 +58,16 @@ def test_agent_ignores_prior_run_web_lines(tmp_path, monkeypatch):
     assert main.collect_agent_events([], decided=set()) == []   # not re-read
 
 
+def test_ids_only_ablation_ignores_the_web_log(tmp_path, monkeypatch):
+    log = str(tmp_path / "access.json.log")
+    monkeypatch.setattr(main, "NGINX_LOG", log)
+    prime_position(log)
+    _append(log, _nginx_line("e1"))
+    alerts = [{"eid": "e2", "src_ip": "203.0.113.10", "signature": "SQLi", "severity": 1}]
+    todo = main.collect_agent_events(alerts, decided=set(), include_web=False)
+    assert [(e["eid"], e["source"]) for e in todo] == [("e2", "ids")]
+
+
 def test_web_event_carries_logged_post_body(tmp_path, monkeypatch):
     log = str(tmp_path / "access.json.log")
     monkeypatch.setattr(main, "NGINX_LOG", log)

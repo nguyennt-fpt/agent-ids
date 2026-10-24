@@ -20,7 +20,7 @@ REPORT_DIR = os.path.join(HERE, "report")
 RAW = os.path.join(REPORT_DIR, "summary_raw.csv")
 SUMMARY = os.path.join(REPORT_DIR, "summary.csv")
 
-MODES = ["rule_based", "naive", "agent"]
+MODES = ["rule_based", "naive", "agent", "agent_ids"]   # agent_ids = IDS-only ablation
 METRICS = ["precision", "recall", "f1", "fpr", "accuracy",
            "mttb_s", "recall_evasion", "fpr_fpbait", "mitre_acc"]
 
@@ -65,13 +65,13 @@ def write_summary(agg: dict) -> None:
 
 def _bar(ax, metrics, agg, title, ylabel):
     x = range(len(metrics))
-    width = 0.25
+    width = 0.8 / len(MODES)
     for i, m in enumerate(MODES):
         means = [agg[m][k][0] for k in metrics]
         stds = [agg[m][k][1] for k in metrics]
         ax.bar([p + i * width for p in x], means, width, yerr=stds,
                capsize=3, label=m)
-    ax.set_xticks([p + width for p in x])
+    ax.set_xticks([p + width * (len(MODES) - 1) / 2 for p in x])
     ax.set_xticklabels(metrics, rotation=15)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -87,7 +87,7 @@ def plots(agg: dict) -> None:
     fig, ax = plt.subplots(figsize=(5, 5))
     means = [agg[m]["mttb_s"][0] for m in MODES]
     stds = [agg[m]["mttb_s"][1] for m in MODES]
-    ax.bar(MODES, means, yerr=stds, capsize=4, color=["#888", "#c66", "#48a"])
+    ax.bar(MODES, means, yerr=stds, capsize=4, color=["#888", "#c66", "#48a", "#8bd"])
     ax.set_title("Mean time-to-block (s) — lower=faster"); ax.set_ylabel("seconds")
     fig.tight_layout(); fig.savefig(os.path.join(REPORT_DIR, "compare_mttb.png"), dpi=130)
 

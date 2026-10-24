@@ -7,6 +7,7 @@
 | `rule_based` | Suricata alert; block nếu `severity ≤ 2` | IDS truyền thống + auto-response |
 | `naive` | Suricata alert; block **mọi** alert | Baseline thô (over-block) |
 | `agent` | LLM + 2 nguồn (eve.json + nginx access.log) | Phương pháp đề xuất |
+| `agent_ids` | cùng graph LLM, **chỉ eve.json** | Ablation: tách "thấy nhiều hơn" (nguồn 2) khỏi "suy luận tốt hơn" |
 
 Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIMENT_DESIGN.md).
 
@@ -77,8 +78,9 @@ python plot.py
 ## Lưu ý
 - `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
 - Corpus hiện là **seed (~60)**. Trước khi chạy số liệu cuối trên EC2, scale mỗi nhóm lên từ cùng nguồn công khai (xem `attack_corpus/build_corpus.py`, mục tiêu ~150).
-- `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định
-  (tối đa `--timeout`, mặc định 600s; hết giờ thì in số `eid` thiếu); `rule_based`/`naive` chờ số row
-  ổn định `--settle` giây (mặc định 15s).
+- `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định;
+  `rule_based`/`naive`/`agent_ids` chờ đủ các `eid` Suricata đã alert trong run này (`alerted_eids.py` →
+  `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 600s), hết giờ in số `eid` thiếu. Chạy tay
+  không có `--alerted` thì quay về "số row ổn định `--settle` giây".
 - Mỗi run tạo lại container agent (`--force-recreate`) → tập `decided` và offset đọc log bắt đầu mới;
   agent đọc cả `eve.json` lẫn nginx log từ cuối file lúc khởi động (không xử lý lại traffic run trước).

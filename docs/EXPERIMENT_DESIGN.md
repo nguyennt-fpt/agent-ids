@@ -34,6 +34,7 @@ Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
 | `rule_based` | eve.json; block nếu severity ≤ 2 | IDS truyền thống + auto-response |
 | `naive` | eve.json; block MỌI alert | Baseline thô (over-block) |
 | `agent` | LLM + 2 nguồn | Phương pháp đề xuất |
+| `agent_ids` | cùng LLM, chỉ eve.json | Ablation (E1): phần thắng của `agent` đến từ nguồn 2 hay từ suy luận |
 
 ## Cách đo công bằng
 

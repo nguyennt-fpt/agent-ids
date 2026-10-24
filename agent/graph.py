@@ -38,6 +38,9 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
 EPOCH = int(os.getenv("EPOCH", "0"))
+# mode label stored with each decision: "agent", or "agent_ids" for the
+# IDS-only ablation (same graph, eve.json source only — see main.py)
+MODE = os.getenv("RESPONSE_MODE", "agent")
 # headless (benchmark) auto-approves high-risk actions; the interactive
 # demo_hitl.py sets this false to exercise the real interrupt()-based gate.
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "true").lower() == "true"
@@ -286,7 +289,7 @@ def act_node(state: AgentState) -> dict:
                         attack=d.get("attack_type", "unknown"),
                         action=d.get("action", "log"),
                         confidence=d.get("confidence", 0.0),
-                        reason=d.get("reason", ""), mode="agent",
+                        reason=d.get("reason", ""), mode=MODE,
                         mitre=d.get("mitre_technique", ""),
                         severity=d.get("severity", ""),
                         note=d.get("analyst_note", ""))
@@ -308,7 +311,7 @@ def act_node(state: AgentState) -> dict:
         record_decision(eid=eid, src_ip=e.get("src_ip", ""), attack=attack,
                         action=action, confidence=0.0,
                         reason=f"no LLM decision -> rule-based fallback (severity={sev})",
-                        mode="agent", severity=SEV_MAP.get(sev, "low"))
+                        mode=MODE, severity=SEV_MAP.get(sev, "low"))
         returned.add(eid)
         if MEMORY_ENABLED:
             add_experience(eid=eid, signature=e.get("signature", ""),

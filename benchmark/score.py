@@ -79,26 +79,30 @@ def _decided_eids(db: str, mode: str) -> set[str]:
     return {r[0] for r in rows if r[0]}
 
 
-def wait_for_decisions(db: str, mode: str, sent: dict,
-                       settle_s: float, timeout_s: float) -> None:
+def wait_for_decisions(db: str, mode: str, sent: dict, settle_s: float,
+                       timeout_s: float, alerted: set | None = None) -> None:
     """Block until this mode's decisions are complete, then return.
 
     agent: it records a decision for every request it sees, so wait until every
     request that got an HTTP response has one — a single LLM invoke can outlast
-    any fixed "no new rows" window. rule_based/naive only record alerted
-    requests, so the expected count is unknown; they have no LLM latency, so
-    "row count stable for settle_s" (several poll cycles) is enough.
+    any fixed "no new rows" window. rule_based / naive / agent_ids only record
+    alerted requests: with `alerted` (the eids Suricata alerted on, from
+    alerted_eids.py) wait for exactly those — agent_ids has LLM latency too.
+    Without it, fall back to "row count stable for settle_s".
     """
     deadline = time.time() + timeout_s
     if mode == "agent":
         expected = {eid for eid, g in sent.items() if isinstance(g.get("status"), int)}
+    else:
+        expected = alerted
+    if expected is not None:
         while True:
             missing = expected - _decided_eids(db, mode)
             if not missing:
                 return
             if time.time() >= deadline:
                 print(f"[SCORE] WARNING: timeout, {len(missing)}/{len(expected)} eids "
-                      f"have no agent decision (scored as benign)")
+                      f"have no {mode} decision (scored as benign)")
                 return
             time.sleep(2)
 
@@ -122,12 +126,17 @@ def main() -> None:
     ap.add_argument("--sent", default=os.path.join(REPORT_DIR, "sent.jsonl"))
     ap.add_argument("--out", default=os.path.join(REPORT_DIR, "summary_raw.csv"))
     ap.add_argument("--settle", type=float, default=15,
-                    help="DB-stable seconds (rule_based/naive)")
+                    help="DB-stable seconds (non-agent modes without --alerted)")
     ap.add_argument("--timeout", type=float, default=600)
+    ap.add_argument("--alerted", help="JSON list of alerted eids (alerted_eids.py)")
     args = ap.parse_args()
 
     gt = load_sent(args.sent)
-    wait_for_decisions(args.db, args.mode, gt, args.settle, args.timeout)
+    alerted = None
+    if args.alerted:
+        with open(args.alerted, encoding="utf-8") as f:
+            alerted = set(json.load(f))
+    wait_for_decisions(args.db, args.mode, gt, args.settle, args.timeout, alerted)
     dec = fetch_decisions(args.db, args.mode)
 
     tp = fp = fn = tn = 0
