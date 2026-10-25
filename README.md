@@ -113,6 +113,8 @@ docker run --rm \
   jasonish/suricata:latest \
   suricata-update --no-reload --disable-conf /etc/suricata/rules/disable.conf \
     --output /etc/suricata/rules
+# Khi stack đã chạy: `bash ids/update_rules.sh` (cài + kiểm + restart Suricata);
+# `bash ids/update_rules.sh untuned` cho lần chạy phụ lục trên ET Open nguyên bản.
 ```
 
 ### 4.2 Start tất cả services

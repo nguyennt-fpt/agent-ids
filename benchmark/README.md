@@ -39,7 +39,25 @@ N=5 TARGET=http://localhost bash run_ab.sh
 #   report/preds.jsonl      — dự đoán từng eid mỗi run (đầu vào bootstrap)
 #   report/ci.csv           — 95% CI bootstrap ghép cặp theo request, gồm "mode - rule_based"
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
+# REPORT_TAG=<tên> → sao kết quả vào report/<tên>/ (lần chạy sau xóa các file ở report/)
 ```
+
+### Số liệu cuối + phụ lục độ nhạy với tinh chỉnh IDS
+
+Số liệu chính chạy trên ET Open **đã tinh chỉnh** (`ids/rules/disable.conf`: tắt Modbus/DNP3 — không nạp được — và
+rule nhiễu `2221036`). Phụ lục chạy lại y hệt trên ET Open **nguyên bản** (`disable-untuned.conf`: chỉ tắt Modbus/DNP3)
+để cho thấy kết luận không phụ thuộc vào việc tắt rule đó. Trên host EC2, từ gốc repo:
+
+```bash
+bash ids/update_rules.sh                      # bản tinh chỉnh (mặc định)
+REPORT_TAG=main SPLIT=test N=5 bash benchmark/run_ab.sh
+bash ids/update_rules.sh untuned              # ET Open nguyên bản
+REPORT_TAG=etopen-untuned SPLIT=test N=5 bash benchmark/run_ab.sh
+bash ids/update_rules.sh                      # trả về bản tinh chỉnh
+```
+
+`update_rules.sh` dừng với lỗi nếu suricata-update không cài được ruleset (nó âm thầm giữ lại bộ rule cũ khi
+`suricata -T` thất bại), restart Suricata, rồi kiểm Ollama còn GPU không.
 
 ## Trụ 3 — Adversarial robustness (prompt injection)
 

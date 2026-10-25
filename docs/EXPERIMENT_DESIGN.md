@@ -46,6 +46,10 @@ Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
 - **Khoa học:** LLM non-deterministic → N=5 lần, báo cáo mean ± std. **Không hứa con số trước.**
 - **Bất định do mẫu:** std qua N run không đo được việc corpus chỉ có ~100 request → báo cáo thêm 95% CI bootstrap
   ghép cặp theo request (`benchmark/bootstrap_ci.py`); khẳng định "agent > rule_based" chỉ khi CI của chênh lệch không chứa 0.
+- **Ruleset IDS:** ET Open + custom rules. Số liệu chính dùng bản tinh chỉnh tối thiểu (`ids/rules/disable.conf`: chỉ tắt
+  rule không nạp được và rule `2221036` — bắn trên phản hồi của chính DVWA, kể cả request benign). Tinh chỉnh áp như
+  nhau cho mọi mode. **Phụ lục:** chạy lại trên ET Open nguyên bản (`disable-untuned.conf`) để chứng minh kết luận không
+  dựa vào việc tinh chỉnh (quyết định 2026-10-25, phương án (ii)).
 
 ## Chống bias (rủi ro nghiêm trọng nhất)
 
