@@ -50,14 +50,17 @@ def _actions(rows):
     return {r["eid"]: r["action"] for r in rows}
 
 
-def test_escalated_batch_waits_without_blocking_the_loop(hitl):
+@pytest.mark.parametrize("batch,acted", [(15, {}), (1, {"e2": "log"})])
+def test_escalated_batch_waits_without_blocking_the_loop(hitl, monkeypatch, batch, acted):
+    monkeypatch.setattr(main, "TRIAGE_BATCH", batch)
     app, rows, _ = hitl
     decided, retries, paused = set(), {}, {}
     main.process_agent_events(app, list(EVENTS), decided, retries, paused)
-    assert rows == [] and decided == set() and retries == {}     # nothing acted on, nothing retried
+    # the escalated batch waits whole, nothing retried; one event per call: only e1 waits
+    assert _actions(rows) == acted and decided == set(acted) and retries == {}
     assert len(paused) == 1 and [p["eid"] for p in approvals.pending()] == ["e1"]
     main.resume_approved(app, decided, retries, paused)          # not answered yet: still waits
-    assert rows == [] and len(paused) == 1
+    assert _actions(rows) == acted and len(paused) == 1
 
 
 @pytest.mark.parametrize("answer,want,truth", [("approve", "block", "malicious"),

@@ -43,6 +43,7 @@ def test_todo_is_split_into_triage_batches(monkeypatch, recorded):
 
 def test_undecided_web_event_is_retried_alone_then_fails_closed(monkeypatch, recorded):
     monkeypatch.setattr(main, "MAX_RETRIES", 2)
+    monkeypatch.setattr(main, "TRIAGE_BATCH", 15)                     # e1 first comes in a batch of 3
     app, decided, retries = FakeApp(drop={"e1"}), set(), {}
 
     main.process_agent_events(app, _events(3), decided, retries)      # attempt 1

@@ -35,9 +35,13 @@ BLOCK_ENABLED = os.getenv("BLOCK_ENABLED", "true").lower() == "true"
 EVE_LOG = os.getenv("EVE_LOG", "/var/log/suricata/eve.json")
 NGINX_LOG = os.getenv("NGINX_LOG", "/var/log/nginx/access.log")
 WAF_LOG = os.getenv("WAF_LOG", "/var/log/waf/audit.json")   # ModSecurity JSON audit log
-# events per triage call: output grows ~100 tokens/decision and past num_predict
-# (4096) the JSON is cut off; input must also fit num_ctx (8192) with the prompt.
-TRIAGE_BATCH = int(os.getenv("TRIAGE_BATCH", "15"))
+# events per triage call. 1 = each event judged on its own: in a batch the model's
+# call on one event leans on the events before it (N1, EC2 2026-10-25: a plain
+# request last in a batch, after an attack on the same page, was flagged 3/3;
+# moved first, or alone, logged 3/3) — and which events share a batch is up to
+# arrival timing. The system prompt is a cached prefix, so the extra calls are
+# cheap. Upper bound when raised: ~100 output tokens/decision, num_predict 4096.
+TRIAGE_BATCH = int(os.getenv("TRIAGE_BATCH", "1"))
 # retries for a web-only event the model returned no decision for (then fail closed)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 # HITL outside the demo (G5): where paused graph runs are checkpointed
