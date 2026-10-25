@@ -3,7 +3,7 @@
 import json
 
 import main
-from tools.alert_reader import prime_position, tail_new_lines
+from tools.alert_reader import normalize_alert, prime_position, tail_new_lines
 
 
 def _append(path, text):
@@ -56,6 +56,16 @@ def test_agent_ignores_prior_run_web_lines(tmp_path, monkeypatch):
     assert [e["eid"] for e in todo] == ["e1", "e2"]
     assert all(e["source"] == "web" for e in todo)
     assert main.collect_agent_events([], decided=set()) == []   # not re-read
+
+
+def test_response_alert_attributes_the_client_not_the_server():
+    eve = {"event_type": "alert", "direction": "to_client",
+           "src_ip": "127.0.0.1", "dest_ip": "198.51.100.92",
+           "alert": {"signature": "x", "severity": 3}, "http": {"url": "/?eid=e1"}}
+    a = normalize_alert(eve)
+    assert (a["src_ip"], a["dest_ip"]) == ("198.51.100.92", "127.0.0.1")
+    eve.update(direction="to_server", src_ip="198.51.100.92", dest_ip="127.0.0.1")
+    assert normalize_alert(eve)["src_ip"] == "198.51.100.92"
 
 
 def test_ids_only_ablation_ignores_the_web_log(tmp_path, monkeypatch):

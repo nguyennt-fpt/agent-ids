@@ -20,10 +20,14 @@ def normalize_alert(alert: dict) -> dict:
     a = alert.get("alert", {})
     http = alert.get("http", {})
     url = http.get("url", "")
+    # src_ip = the client (who would be blocked). EVE gives packet direction, so on
+    # a response (to_client) alert the client is dest_ip — also where the XFF
+    # overwrite puts the benchmark actor.
+    to_client = alert.get("direction") == "to_client"
     return {
         "timestamp": alert.get("timestamp", ""),
-        "src_ip": alert.get("src_ip", ""),
-        "dest_ip": alert.get("dest_ip", ""),
+        "src_ip": alert.get("dest_ip" if to_client else "src_ip", ""),
+        "dest_ip": alert.get("src_ip" if to_client else "dest_ip", ""),
         "signature": a.get("signature", ""),
         "severity": a.get("severity", 3),
         "category": a.get("category", ""),
