@@ -21,6 +21,13 @@ RAW="$HERE/report/summary_raw.csv"
 mkdir -p "$HERE/report"
 rm -f "$RAW"
 
+# load the model before an LLM run, so the first batch's MTTB doesn't include a ~30s
+# model load; same num_ctx as the agent, or Ollama reloads it on the first real call
+warm_model() {
+  curl -s -o /dev/null http://localhost:11434/api/generate -d \
+    "{\"model\":\"${OLLAMA_MODEL:-qwen2.5:14b}\",\"prompt\":\"ok\",\"stream\":false,\"options\":{\"num_ctx\":8192,\"num_predict\":1}}" || true
+}
+
 reset_db() {
   docker compose exec -T agent python -c \
     "import sqlite3,os;d=os.getenv('DASHBOARD_DB','/app/data/events.db');\
@@ -36,6 +43,7 @@ for mode in "${MODES[@]}"; do
     # --no-deps: leave ollama (and its loaded model) alone.
     RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
     sleep 12                      # agent boot (+ ollama readiness check)
+    case "$mode" in agent*) warm_model ;; esac
     reset_db                      # clear prior decisions so runs don't mix
     "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY" "${SPLIT_ARGS[@]}"
     sleep 3                       # let Suricata flush the last alerts
