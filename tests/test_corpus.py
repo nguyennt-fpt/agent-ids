@@ -3,13 +3,15 @@ dev/test split, actors, POST forms; replay request construction."""
 
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "benchmark", "attack_corpus"))
 
 import build_corpus  # noqa: E402
-from replay import build_request, select_rows  # noqa: E402
+from replay import build_request, make_client, select_rows  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +76,32 @@ def test_build_request_sets_xff_body_and_eid():
 def test_v1_row_replays_without_xff_or_body():
     method, _, kw = build_request({"eid": "e", "path": "/x", "params": {"a": "1"}}, "http://h")
     assert method == "GET" and "X-Forwarded-For" not in kw["headers"] and "data" not in kw
+
+
+def test_replay_opens_one_connection_per_request():
+    ports = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"                     # would keep the connection open
+
+        def do_GET(self):
+            ports.append(self.client_address[1])
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with make_client() as client:
+            for _ in range(3):
+                client.get(f"http://127.0.0.1:{srv.server_port}/")
+    finally:
+        srv.shutdown()
+    assert len(set(ports)) == 3                           # no actor shares a socket
 
 
 def test_select_rows_filters_split_and_orders_by_seq():

@@ -55,6 +55,14 @@ def build_request(r: dict, target: str) -> tuple[str, str, dict]:
     return r.get("method", "GET"), target.rstrip("/") + r["path"], kw
 
 
+def make_client() -> httpx.Client:
+    """One TCP connection per request (no keep-alive): sharing a connection put
+    the bytes of one actor's request into another actor's IDS alert payload
+    (EC2 2026-10-25). Real clients never share a socket."""
+    return httpx.Client(timeout=10, follow_redirects=True,
+                        limits=httpx.Limits(max_keepalive_connections=0))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", default="http://localhost")
@@ -72,7 +80,7 @@ def main() -> None:
           + (f" (split={args.split})" if args.split else ""))
 
     sent = []
-    with httpx.Client(timeout=10, follow_redirects=True) as client:
+    with make_client() as client:
         for r in rows:
             method, url, kw = build_request(r, args.target)
             ts_sent = time.time()
