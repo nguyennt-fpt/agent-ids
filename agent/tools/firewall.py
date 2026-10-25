@@ -42,6 +42,25 @@ def unblock_ip(ip: str) -> dict:
         return {"status": "unblocked", "ip": ip}
 
 
+def cleanup_stale_blocks() -> int:
+    """Delete agent-block-* rules a previous agent process left in DOCKER-USER.
+
+    Block state (and the expiry timers) live in RAM, so after a restart those
+    DROP rules would never expire, and blocking the same IP again would stack a
+    duplicate that `unblock_ip` removes only once. Only this agent's own rules
+    (matched by their comment) are touched. Returns how many were removed.
+    """
+    rc, out = _run(["iptables", "-S", "DOCKER-USER"])
+    if rc != 0:
+        return 0
+    removed = 0
+    for line in out.splitlines():
+        if line.startswith("-A DOCKER-USER ") and "agent-block-" in line:
+            rc, _ = _run(["iptables", "-D"] + line.split()[1:])
+            removed += rc == 0
+    return removed
+
+
 def get_blocked_ips() -> list[dict]:
     """Return currently blocked IPs with expiry times."""
     with _lock:

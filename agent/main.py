@@ -21,6 +21,7 @@ from actions import SEV_MAP, guess_attack, record_decision, rule_flags
 from tools.alert_reader import (
     extract_eid, normalize_alert, prime_position, read_new_alerts, tail_new_lines,
 )
+from tools.firewall import cleanup_stale_blocks
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "5"))
@@ -149,6 +150,13 @@ def process_agent_events(app, todo: list[dict], decided: set, retries: dict) -> 
             decided.add(eid)
 
 
+def late_ids_alerts(alerts: list[dict], web_decided: set) -> list[str]:
+    """eids whose IDS alert arrived after the request was already triaged from
+    the web log — the model decided it without seeing the signature (D4: the
+    nginx line can be read a poll before Suricata's alert)."""
+    return [a["eid"] for a in alerts if a.get("eid") in web_decided]
+
+
 def wait_for_ollama() -> None:
     with httpx.Client() as c:
         for _ in range(60):
@@ -167,7 +175,12 @@ def run() -> None:
           f"block_enabled={BLOCK_ENABLED}")
     prime_position(EVE_LOG)          # skip a prior benchmark run's stale alerts
     prime_position(NGINX_LOG)        # ...and its stale web-log lines
+    if BLOCK_ENABLED:
+        n = cleanup_stale_blocks()
+        if n:
+            print(f"[AGENT] removed {n} stale agent-block rule(s) left by a previous run")
     decided: set[str] = set()
+    web_decided: set[str] = set()    # eids decided from the web log, for late_ids_alerts
     retries: dict[str, tuple[dict, int]] = {}
 
     app = None
@@ -182,10 +195,16 @@ def run() -> None:
         if RESPONSE_MODE in ("rule_based", "naive"):
             handle_rule_based(alerts, RESPONSE_MODE, decided)
         else:
+            late = late_ids_alerts(alerts, web_decided)
+            if late:
+                print(f"[AGENT] {len(late)} IDS alert(s) arrived after their request was "
+                      f"already triaged from the web log: {late}")
             todo = collect_agent_events(alerts, decided,
                                         include_web=RESPONSE_MODE == "agent")
             if todo or retries:
                 process_agent_events(app, todo, decided, retries)
+                web_decided.update(e["eid"] for e in todo
+                                   if e["source"] == "web" and e["eid"] in decided)
 
         time.sleep(POLL_INTERVAL)
 

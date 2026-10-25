@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from urllib.parse import urlparse, parse_qs
@@ -13,6 +14,16 @@ def extract_eid(url: str) -> str:
         return parse_qs(urlparse(url).query).get("eid", [""])[0]
     except Exception:
         return ""
+
+
+def auto_eid(alert: dict) -> str:
+    """Id for traffic without a benchmark eid (real traffic): one per HTTP
+    transaction (flow_id + tx_id), so several alerts on one request are decided
+    once — and act_node can find the event, i.e. its src_ip to block."""
+    if alert.get("flow_id") is not None:
+        return f"auto-{alert['flow_id']}-{alert.get('tx_id', '')}"
+    key = "|".join(str(alert.get(k, "")) for k in ("timestamp", "src_ip", "src_port"))
+    return "auto-" + hashlib.sha1(key.encode()).hexdigest()[:12]
 
 
 def normalize_alert(alert: dict) -> dict:
@@ -34,7 +45,7 @@ def normalize_alert(alert: dict) -> dict:
         "method": http.get("http_method", ""),
         "url": url,
         "user_agent": http.get("http_user_agent", ""),
-        "eid": extract_eid(url),
+        "eid": extract_eid(url) or auto_eid(alert),
         "payload": (alert.get("payload_printable", "") or "")[:300].replace("\n", " "),
     }
 
