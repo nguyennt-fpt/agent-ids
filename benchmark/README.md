@@ -83,8 +83,9 @@ CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu 
 
 ## Trụ 4 — Experience memory
 
-Đo **learning curve**: agent học từ lỗi qua nhiều epoch (memory on vs off). *(Chưa dùng được cho kết luận:
-learning curve còn rò rỉ đáp án — G1 trong `notes/checklist-2026-09.md`.)*
+Đo **learning curve**: agent học từ lỗi qua nhiều epoch (memory on vs off). Mỗi epoch **đánh giá trước** trên tập
+test (chỉ dùng lesson đã học), **rồi học** từ feedback của tập dev — không bao giờ nạp đáp án của tập đang chấm
+(bản cũ replay cùng corpus và nạp đáp án của chính các request đó → đo khả năng nhớ đáp án). Epoch 1 = mốc chưa có memory.
 
 ```bash
 docker exec ollama ollama pull nomic-embed-text     # embedding cho memory

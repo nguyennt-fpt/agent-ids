@@ -1,8 +1,13 @@
 """Learning curve for experience memory (Trụ 4A).
 
-Runs the agent over several epochs on the same corpus. After each epoch it
-feeds ground-truth back into the experience store (so the agent learns from its
-mistakes); the next epoch retrieves those lessons as few-shot context.
+Each epoch: (1) EVALUATE — replay the eval split and score it, using only
+lessons learned so far; (2) LEARN — replay the feedback split and write its
+ground truth into the experience store. Feedback never comes from the eval
+split: the old loop replayed one corpus and fed back the answers to the very
+requests it re-scored next epoch, so the curve measured recall of memorized
+answers (review #2). The splits are disjoint by payload family, so a lesson
+quoting a feedback-split payload reveals nothing about eval requests.
+Epoch 1 is evaluated before any feedback — the no-memory reference point.
 
 Compare two invocations:
   python learning_curve.py --epochs 5 --memory on
@@ -47,7 +52,8 @@ def load_corpus_index() -> dict:
             line = line.strip()
             if line:
                 r = json.loads(line)
-                payload = " ".join(str(v) for v in r.get("params", {}).values())
+                fields = {**r.get("params", {}), **(r.get("body") or {})}   # POST rows carry it in body
+                payload = " ".join(str(v) for v in fields.values())
                 idx[r["eid"]] = {"attack_type": r.get("attack_type", ""), "payload": payload}
     return idx
 
@@ -88,7 +94,21 @@ def epoch_metrics(sent: dict, dec: dict) -> tuple[float, float]:
     return recall, fpr
 
 
-def run(epochs: int, memory: str, target: str, delay: float):
+def replay(split: str, target: str, delay: float) -> dict:
+    """Replay one corpus split and wait until the agent decided all of it."""
+    out = os.path.join(REPORT, f"sent_{split}.jsonl")
+    subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "--target", target,
+                    "--delay", str(delay), "--split", split, "--out", out], check=False)
+    sent = load_sent(out)
+    wait_for_decisions(EVENTS_DB, "agent", sent, settle_s=15, timeout_s=600)
+    return sent
+
+
+def run(epochs: int, memory: str, target: str, delay: float,
+        feedback_split: str = "dev", eval_split: str = "test"):
+    if feedback_split == eval_split:
+        raise ValueError("feedback and eval split must differ, or the curve scores "
+                         "answers it was just told")
     mem_on = memory == "on"
     clear_experience()
     corpus_idx = load_corpus_index()
@@ -104,25 +124,27 @@ def run(epochs: int, memory: str, target: str, delay: float):
            env=env)
         time.sleep(12)
         reset_events_only()
-        subprocess.run([sys.executable, os.path.join(HERE, "replay.py"),
-                        "--target", target, "--delay", str(delay)], check=False)
 
-        sent = load_sent(os.path.join(REPORT, "sent.jsonl"))
-        wait_for_decisions(EVENTS_DB, "agent", sent, settle_s=15, timeout_s=600)
+        held = replay(eval_split, target, delay)            # 1. evaluate: lessons so far only
+        recall, fpr = epoch_metrics(held, fetch_decisions(EVENTS_DB, "agent"))
+
+        train = replay(feedback_split, target, delay)       # 2. learn from the other split
         dec = fetch_decisions(EVENTS_DB, "agent")
-        recall, fpr = epoch_metrics(sent, dec)
-        rows.append({"epoch": epoch, "recall": round(recall, 4), "fpr": round(fpr, 4)})
-        print(f"   epoch {epoch}: recall={recall:.2f} fpr={fpr:.2f}")
-
-        if mem_on:  # feed ground truth back so the agent learns
-            for eid, g in sent.items():
+        train_recall, train_fpr = epoch_metrics(train, dec)
+        if mem_on:
+            for eid, g in train.items():
                 meta = corpus_idx.get(eid, {})
                 pred = "block" if dec.get(eid, {}).get("pred_malicious") else "log"
                 record_feedback(eid, g["label"], pred,
                                 meta.get("attack_type", ""), meta.get("payload", ""))
 
+        rows.append({"epoch": epoch, "recall": round(recall, 4), "fpr": round(fpr, 4),
+                     "train_recall": round(train_recall, 4), "train_fpr": round(train_fpr, 4)})
+        print(f"   epoch {epoch}: eval recall={recall:.2f} fpr={fpr:.2f} | "
+              f"feedback split recall={train_recall:.2f} fpr={train_fpr:.2f}")
+
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["epoch", "recall", "fpr"])
+        w = csv.DictWriter(f, fieldnames=["epoch", "recall", "fpr", "train_recall", "train_fpr"])
         w.writeheader(); w.writerows(rows)
     print(f"\nwrote {out_csv}")
     return out_csv
@@ -134,9 +156,13 @@ def overlay_plot():
     if not (os.path.exists(on_csv) and os.path.exists(off_csv)):
         print("Run both --memory on and --memory off to produce the overlay plot.")
         return
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    try:                                   # the EC2 host has no matplotlib; the CSVs are the result
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not installed — learning_curve.png skipped (CSVs written)")
+        return
 
     def load(p):
         with open(p, encoding="utf-8") as f:
@@ -163,8 +189,10 @@ def main():
     ap.add_argument("--memory", choices=["on", "off"], required=True)
     ap.add_argument("--target", default="http://localhost")
     ap.add_argument("--delay", type=float, default=0.5)
+    ap.add_argument("--feedback-split", default="dev", help="split whose answers feed memory")
+    ap.add_argument("--eval-split", default="test", help="split the curve is scored on")
     args = ap.parse_args()
-    run(args.epochs, args.memory, args.target, args.delay)
+    run(args.epochs, args.memory, args.target, args.delay, args.feedback_split, args.eval_split)
     overlay_plot()
 
 
