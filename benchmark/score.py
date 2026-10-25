@@ -96,15 +96,16 @@ def wait_for_decisions(db: str, mode: str, sent: dict, settle_s: float,
                        timeout_s: float, alerted: set | None = None) -> None:
     """Block until this mode's decisions are complete, then return.
 
-    agent: it records a decision for every request it sees, so wait until every
-    request that got an HTTP response has one — a single LLM invoke can outlast
-    any fixed "no new rows" window. rule_based / naive / agent_ids only record
-    alerted requests: with `alerted` (the eids Suricata alerted on, from
-    alerted_eids.py) wait for exactly those — agent_ids has LLM latency too.
-    Without it, fall back to "row count stable for settle_s".
+    agent / waf: they record a decision for every request they see (the WAF
+    audits every transaction), so wait until every request that got an HTTP
+    response has one — a single LLM invoke can outlast any fixed "no new rows"
+    window. rule_based / naive / agent_ids only record alerted requests: with
+    `alerted` (the eids Suricata alerted on, from alerted_eids.py) wait for
+    exactly those — agent_ids has LLM latency too. Without it, fall back to
+    "row count stable for settle_s".
     """
     deadline = time.time() + timeout_s
-    if mode == "agent":
+    if mode in ("agent", "waf"):
         expected = {eid for eid, g in sent.items() if isinstance(g.get("status"), int)}
     else:
         expected = alerted

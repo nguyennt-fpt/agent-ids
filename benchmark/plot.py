@@ -16,7 +16,7 @@ REPORT_DIR = os.path.join(HERE, "report")
 RAW = os.path.join(REPORT_DIR, "summary_raw.csv")
 SUMMARY = os.path.join(REPORT_DIR, "summary.csv")
 
-MODES = ["rule_based", "naive", "agent", "agent_ids"]   # agent_ids = IDS-only ablation
+MODES = ["rule_based", "naive", "waf", "agent", "agent_ids"]   # waf = CRS baseline; agent_ids = ablation
 METRICS = ["precision", "recall", "f1", "fpr", "accuracy",
            "mttb_s", "recall_evasion", "fpr_fpbait", "mitre_acc"]
 
@@ -91,7 +91,7 @@ def plots(agg: dict) -> None:
     fig, ax = plt.subplots(figsize=(5, 5))
     means = [agg[m]["mttb_s"][0] for m in MODES]
     stds = [agg[m]["mttb_s"][1] for m in MODES]
-    ax.bar(MODES, means, yerr=stds, capsize=4, color=["#888", "#c66", "#48a", "#8bd"])
+    ax.bar(MODES, means, yerr=stds, capsize=4, color=["#888", "#c66", "#a7a", "#48a", "#8bd"])
     ax.set_title("Mean time-to-block (s) — lower=faster"); ax.set_ylabel("seconds")
     fig.tight_layout(); fig.savefig(os.path.join(REPORT_DIR, "compare_mttb.png"), dpi=130)
 

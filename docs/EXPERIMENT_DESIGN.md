@@ -35,6 +35,7 @@ Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
 | `naive` | eve.json; block MỌI alert | Baseline thô (over-block) |
 | `agent` | LLM + 2 nguồn | Phương pháp đề xuất |
 | `agent_ids` | cùng LLM, chỉ eve.json | Ablation (E1): phần thắng của `agent` đến từ nguồn 2 hay từ suy luận |
+| `waf` | OWASP CRS (ModSecurity, trong đường đi, DetectionOnly) | Baseline chuẩn doanh nghiệp: tấn công web thường được chặn bằng WAF, không phải NIDS |
 
 ## Cách đo công bằng
 

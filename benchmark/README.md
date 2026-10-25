@@ -8,6 +8,7 @@
 | `naive` | Suricata alert; block **mọi** alert | Baseline thô (over-block) |
 | `agent` | LLM + 2 nguồn (eve.json + nginx access.log) | Phương pháp đề xuất |
 | `agent_ids` | cùng graph LLM, **chỉ eve.json** | Ablation: tách "thấy nhiều hơn" (nguồn 2) khỏi "suy luận tốt hơn" |
+| `waf` | OWASP CRS trên ModSecurity (trong đường đi, DetectionOnly); tấn công khi rule `949110` (vượt ngưỡng anomaly) bắn | Baseline chuẩn doanh nghiệp cho tấn công web |
 
 Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIMENT_DESIGN.md).
 

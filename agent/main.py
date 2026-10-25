@@ -6,6 +6,8 @@ RESPONSE_MODE selects the decision engine (for A/B benchmarking):
   - agent      : LangGraph engine (LLM + memory) over eve.json + nginx access.log
   - agent_ids  : ablation — the same LangGraph engine over eve.json ONLY, to tell
                  "sees more (2nd source)" apart from "reasons better"
+  - waf        : industry baseline — OWASP CRS on ModSecurity (in-path, DetectionOnly);
+                 attack iff CRS's inbound anomaly threshold rule 949110 fired
 
 Tools are called in-process (no MCP hot path). The agent engine is a LangGraph
 StateGraph; rule_based/naive stay pure Python and don't import LangChain.
@@ -32,6 +34,7 @@ RESPONSE_MODE = os.getenv("RESPONSE_MODE", "agent")
 BLOCK_ENABLED = os.getenv("BLOCK_ENABLED", "true").lower() == "true"
 EVE_LOG = os.getenv("EVE_LOG", "/var/log/suricata/eve.json")
 NGINX_LOG = os.getenv("NGINX_LOG", "/var/log/nginx/access.log")
+WAF_LOG = os.getenv("WAF_LOG", "/var/log/waf/audit.json")   # ModSecurity JSON audit log
 # events per triage call: output grows ~100 tokens/decision and past num_predict
 # (4096) the JSON is cut off; input must also fit num_ctx (8192) with the prompt.
 TRIAGE_BATCH = int(os.getenv("TRIAGE_BATCH", "15"))
@@ -61,6 +64,40 @@ def handle_rule_based(alerts: list[dict], mode: str, decided: set) -> None:
                         severity=SEV_MAP.get(sev, "low"))
         if eid:
             decided.add(eid)
+
+
+# ─── WAF baseline (OWASP CRS, no LLM) ──────────────────────────────────────────
+
+# CRS tags its rules by attack class; first match wins
+_CRS_TAGS = (("attack-sqli", "sqli"), ("attack-xss", "xss"), ("attack-rce", "cmdi"),
+             ("attack-rfi", "rfi"), ("attack-lfi", "lfi"), ("attack-reputation-scanner", "scan"))
+
+
+def handle_waf(decided: set) -> None:
+    """One decision per audited transaction (the WAF audits every request).
+    Attack = CRS's inbound anomaly score crossed its threshold (rule 949110),
+    exactly what would have blocked with the rule engine On; DetectionOnly
+    just logs it, so every mode sees the same traffic."""
+    for line in tail_new_lines(WAF_LOG):
+        try:
+            tx = json.loads(line).get("transaction", {})
+        except (ValueError, AttributeError):
+            continue
+        req = tx.get("request") or {}
+        eid = extract_eid(req.get("uri", ""))
+        if not eid or eid in decided:
+            continue
+        msgs = [m.get("details") or {} for m in tx.get("messages") or []]
+        flagged = any(str(d.get("ruleId")) == "949110" for d in msgs)
+        tags = {t for d in msgs for t in d.get("tags") or []}
+        attack = next((a for tag, a in _CRS_TAGS if tag in tags), "unknown") if flagged else "none"
+        headers = {k.lower(): v for k, v in (req.get("headers") or {}).items()}
+        src = (headers.get("x-forwarded-for") or tx.get("client_ip") or "").split(",")[0].strip()
+        rule_ids = sorted({str(d.get("ruleId")) for d in msgs if d.get("ruleId")})
+        record_decision(eid=eid, src_ip=src, attack=attack, action="block" if flagged else "log",
+                        confidence=1.0, reason=f"CRS rules {','.join(rule_ids) or '-'}",
+                        mode="waf", severity="high" if flagged else "")
+        decided.add(eid)
 
 
 # ─── Agent engine (2 sources -> LangGraph) ─────────────────────────────────────
@@ -224,6 +261,7 @@ def run() -> None:
           f"block_enabled={BLOCK_ENABLED}")
     prime_position(EVE_LOG)          # skip a prior benchmark run's stale alerts
     prime_position(NGINX_LOG)        # ...and its stale web-log lines
+    prime_position(WAF_LOG)          # ...and the WAF's
     if BLOCK_ENABLED:
         n = cleanup_stale_blocks()
         if n:
@@ -252,6 +290,8 @@ def run() -> None:
 
         if RESPONSE_MODE in ("rule_based", "naive"):
             handle_rule_based(alerts, RESPONSE_MODE, decided)
+        elif RESPONSE_MODE == "waf":
+            handle_waf(decided)
         else:
             late = late_ids_alerts(alerts, web_decided)
             if late:

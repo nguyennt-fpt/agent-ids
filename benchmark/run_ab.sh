@@ -11,8 +11,8 @@ PY="${PYTHON:-python3}"          # Ubuntu hosts have no bare `python`
 N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
-# agent_ids = IDS-only ablation of the agent; e.g. MODES=agent to rerun one mode
-read -r -a MODES <<< "${MODES:-rule_based naive agent agent_ids}"
+# agent_ids = IDS-only ablation of the agent; waf = OWASP CRS baseline; e.g. MODES=agent
+read -r -a MODES <<< "${MODES:-rule_based naive waf agent agent_ids}"
 # corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers
 SPLIT_ARGS=()
 [ -n "${SPLIT:-}" ] && SPLIT_ARGS=(--split "$SPLIT")
@@ -56,7 +56,7 @@ for mode in "${MODES[@]}"; do
 done
 
 "$PY" "$HERE/plot.py"
-"$PY" "$HERE/bootstrap_ci.py"      # paired 95% CI over requests, incl. each mode - rule_based
+"$PY" "$HERE/bootstrap_ci.py" --baseline rule_based waf   # paired 95% CIs vs both baselines
 "$PY" "$HERE/calibration.py"       # does the agent's confidence match how often it is right?
 echo "Done. See $HERE/report/summary.csv, report/ci.csv and report/*.png"
 

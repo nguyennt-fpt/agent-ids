@@ -36,6 +36,31 @@ services:
       - security-net
     restart: unless-stopped
 
+  # Industry baseline for the A/B (mode `waf`): OWASP Core Rule Set on ModSecurity,
+  # in the request path nginx -> waf -> dvwa. DetectionOnly: it scores and logs
+  # every transaction but never blocks, so every mode sees identical traffic.
+  waf:
+    image: owasp/modsecurity-crs:nginx
+    container_name: waf
+    user: "0"                      # lab: lets it write the audit log into the shared volume
+    environment:
+      - BACKEND=http://dvwa:80
+      - PORT=8080
+      - MODSEC_RULE_ENGINE=DetectionOnly
+      - MODSEC_AUDIT_ENGINE=On     # audit every request -> one decision per request
+      - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG_TYPE=Serial
+      - MODSEC_AUDIT_LOG=/var/log/waf/audit.json
+      - PARANOIA=1                 # CRS defaults: paranoia 1, inbound threshold 5
+      - ANOMALY_INBOUND=5
+    volumes:
+      - waf-logs:/var/log/waf
+    depends_on:
+      - dvwa
+    networks:
+      - security-net
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.25-alpine
     container_name: nginx
@@ -45,7 +70,7 @@ services:
       - ./webserver/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - nginx-logs:/var/log/nginx
     depends_on:
-      - dvwa
+      - waf
     networks:
       - security-net
     restart: unless-stopped
@@ -113,6 +138,7 @@ services:
     volumes:
       - suricata-logs:/var/log/suricata:ro
       - nginx-logs:/var/log/nginx:ro
+      - waf-logs:/var/log/waf:ro
       - ./agent/data:/app/data
     environment:
       - PYTHONUNBUFFERED=1          # stream agent decisions to `docker logs` live
@@ -120,6 +146,7 @@ services:
       - OLLAMA_MODEL=qwen2.5:14b
       - EVE_LOG=/var/log/suricata/eve.json
       - NGINX_LOG=/var/log/nginx/access.json.log
+      - WAF_LOG=/var/log/waf/audit.json
       - DASHBOARD_DB=/app/data/events.db
       - RESPONSE_MODE=${RESPONSE_MODE:-agent}
       - BLOCK_ENABLED=${BLOCK_ENABLED:-true}
@@ -169,4 +196,5 @@ volumes:
   mysql-data:
   nginx-logs:
   suricata-logs:
+  waf-logs:
   ollama-models:

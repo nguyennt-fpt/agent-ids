@@ -3,7 +3,7 @@
 Hệ thống phát hiện và ngăn chặn tấn công lai ghép: **Suricata IDS** (rule-based, <1ms) + **AI Agent** (Qwen2.5-14B, contextual analysis). Target thử nghiệm: **DVWA** (Damn Vulnerable Web Application).
 
 ```
-Attacker → Nginx → DVWA → Suricata (detect) → AI Agent (decide) → iptables (block)
+Attacker → Nginx → WAF (OWASP CRS, chỉ ghi log) → DVWA · Suricata (detect) → AI Agent (decide) → iptables (block)
 ```
 
 ---

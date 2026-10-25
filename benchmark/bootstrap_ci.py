@@ -8,7 +8,7 @@ over runs. A difference whose 95% CI excludes 0 is a claim the data supports; on
 that straddles 0 is not evidence either way.
 
 Input: report/preds.jsonl (score.py). Output: report/ci.csv + a table.
-Usage: python bootstrap_ci.py [--baseline rule_based] [--b 2000]
+Usage: python bootstrap_ci.py [--baseline rule_based waf] [--b 2000]
 """
 
 import argparse
@@ -67,34 +67,42 @@ def _ci(vals: list) -> tuple[float, float]:
     return v[int(0.025 * (len(v) - 1))], v[int(0.975 * (len(v) - 1))]
 
 
-def bootstrap(preds: dict, baseline: str, b: int, seed: int) -> list[dict]:
+def bootstrap(preds: dict, baselines, b: int, seed: int) -> list[dict]:
+    """baselines: one mode or several (e.g. rule_based and waf); every other
+    mode gets a paired "mode - baseline" CI against each, once per pair."""
     modes = sorted(preds)
     eids = sorted(set.intersection(*(set(runs[r]) for runs in preds.values() for r in runs)))
-    others = [m for m in modes if m != baseline] if baseline in preds else []
+    pairs, seen = [], set()
+    for base in ([baselines] if isinstance(baselines, str) else baselines):
+        for m in modes:
+            if base in preds and m != base and frozenset((m, base)) not in seen:
+                seen.add(frozenset((m, base)))
+                pairs.append((m, base))
     point = {m: mode_metrics(preds[m], eids) for m in modes}
 
     rng = random.Random(seed)
     samples = {m: {k: [] for k in METRICS} for m in modes}
-    deltas = {m: {k: [] for k in METRICS} for m in others}
+    deltas = {p: {k: [] for k in METRICS} for p in pairs}
     for _ in range(b):
         s = rng.choices(eids, k=len(eids))
         vals = {m: mode_metrics(preds[m], s) for m in modes}
         for m in modes:
             for k in METRICS:
                 samples[m][k].append(vals[m][k])
-                if m in deltas:
-                    deltas[m][k].append(vals[m][k] - vals[baseline][k])
+        for (m, base), d in deltas.items():
+            for k in METRICS:
+                d[k].append(vals[m][k] - vals[base][k])
 
     rows = []
     for m in modes:
         for k in METRICS:
             rows.append({"mode": m, "metric": k, "point": point[m][k],
                          **dict(zip(("lo", "hi"), _ci(samples[m][k])))})
-    for m in others:
+    for m, base in pairs:
         for k in METRICS:
-            rows.append({"mode": f"{m} - {baseline}", "metric": k,
-                         "point": point[m][k] - point[baseline][k],
-                         **dict(zip(("lo", "hi"), _ci(deltas[m][k])))})
+            rows.append({"mode": f"{m} - {base}", "metric": k,
+                         "point": point[m][k] - point[base][k],
+                         **dict(zip(("lo", "hi"), _ci(deltas[(m, base)][k])))})
     for r in rows:
         r["n_eids"] = len(eids)
     return rows
@@ -104,7 +112,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--preds", default=os.path.join(REPORT_DIR, "preds.jsonl"))
     ap.add_argument("--out", default=os.path.join(REPORT_DIR, "ci.csv"))
-    ap.add_argument("--baseline", default="rule_based")
+    ap.add_argument("--baseline", nargs="+", default=["rule_based"],
+                    help="mode(s) every other mode is compared against")
     ap.add_argument("--b", type=int, default=2000, help="bootstrap resamples")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
