@@ -51,7 +51,7 @@ def test_cleanup_removes_only_this_agents_rules(monkeypatch):
     calls = []
     listing = "\n".join([
         "-N DOCKER-USER",
-        "-A DOCKER-USER -s 203.0.113.9/32 -m comment --comment agent-block-203.0.113.9 -j DROP",
+        "-A DOCKER-USER -s 203.0.113.9/32 -m comment --comment \"agent-block-203.0.113.9\" -j DROP",  # as iptables prints it
         "-A DOCKER-USER -s 10.1.2.3/32 -j DROP",                       # someone else's rule
         "-A DOCKER-USER -s 203.0.113.9/32 -m comment --comment agent-block-203.0.113.9 -j DROP",
         "-A DOCKER-USER -j RETURN",

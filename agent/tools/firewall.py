@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import threading
 import time
@@ -56,7 +57,8 @@ def cleanup_stale_blocks() -> int:
     removed = 0
     for line in out.splitlines():
         if line.startswith("-A DOCKER-USER ") and "agent-block-" in line:
-            rc, _ = _run(["iptables", "-D"] + line.split()[1:])
+            # shlex: iptables -S quotes the comment ("agent-block-…"); a plain split keeps the quotes
+            rc, _ = _run(["iptables", "-D"] + shlex.split(line)[1:])
             removed += rc == 0
     return removed
 
