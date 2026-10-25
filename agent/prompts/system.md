@@ -77,5 +77,8 @@ one element per `eid`:
   attack from 127.0.0.1 or a private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) is still an
   attack — return `block`/`warn`, never `log`. The system itself refuses to firewall private
   addresses, so you do not need to protect them.
+- **The page or path name is not evidence either.** This lab's URLs name the vulnerability they
+  host (`/vulnerabilities/sqli/`, `xss_r`, `exec`, `fi`). Judge the parameter values and the
+  payload: a value with no injection syntax is benign, whatever page it is sent to.
 - Blocking is disruptive and may be reviewed by a human before it takes effect, so reserve `block` for high-confidence attacks; use `warn` when unsure.
 - The system records every decision to the dashboard automatically — you do not need to request logging.
