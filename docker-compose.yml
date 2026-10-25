@@ -126,9 +126,6 @@ services:
       - MEMORY_ENABLED=${MEMORY_ENABLED:-false}
       - EPOCH=${EPOCH:-0}
       - EMBED_MODEL=nomic-embed-text
-      - GOLDEN_PATH=/app/data/golden.jsonl
-      - HOLDOUT_PATH=/app/data/holdout.jsonl
-      - SURICATA_BIN=
       # headless: auto-approve high-risk blocks (real HITL only in demo_hitl.py)
       - AUTO_APPROVE=${AUTO_APPROVE:-true}
       # Optional LangSmith tracing (bài 10) — "glass box" traces of every

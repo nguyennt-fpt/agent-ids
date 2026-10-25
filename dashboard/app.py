@@ -55,22 +55,6 @@ def api_events():
     return jsonify([dict(r) for r in rows])
 
 
-@app.route("/api/rules")
-def api_rules():
-    """Self-evolving rule audit trail (Trụ 4B)."""
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            "SELECT ts, rule, status, precision, recall, f1_before, f1_after, epoch, reason "
-            "FROM rules ORDER BY id DESC LIMIT 100"
-        ).fetchall()
-        out = [dict(r) for r in rows]
-    except sqlite3.OperationalError:
-        out = []  # rules table not created yet
-    conn.close()
-    return jsonify(out)
-
-
 @app.route("/api/stats")
 def api_stats():
     _ensure_table()

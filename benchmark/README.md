@@ -74,8 +74,7 @@ python learning_curve.py --epochs 5 --memory off
 # -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ theo epoch)
 ```
 
-*Rule tự sinh (Trụ 4B, `agent/tools/rule_validator.py` 4 gate) đã **cắt khỏi phạm vi** — không có đường chạy,
-xem `docs/EXPERIMENT_DESIGN.md` mục "Trụ 4B".*
+*Rule tự sinh (Trụ 4B, pipeline 4 gate) đã **cắt khỏi phạm vi** và xóa code — xem `docs/EXPERIMENT_DESIGN.md` mục "Trụ 4B".*
 
 ### Chạy tay từng bước (debug)
 ```bash

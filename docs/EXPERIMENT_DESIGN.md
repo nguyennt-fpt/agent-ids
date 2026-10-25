@@ -59,8 +59,8 @@ Tôi vừa viết rule, vừa viết prompt — nếu tự chế corpus dễ "d�
 
 ## Trụ 4B — rule tự sinh: ĐÃ CẮT khỏi phạm vi (2026-10-25, quyết định E2)
 
-Không đo, không báo cáo. Lý do: pipeline không có đường chạy (không gì gọi `rule_validator`/`ids_manager` từ khi bỏ
-MCP; container agent không có binary `suricata`), gate 2/3 chỉ mô phỏng bằng regex trên 14–20 mẫu nên ngưỡng
+Không đo, không báo cáo; code (`rule_validator`, `ids_manager`, golden set, bảng dashboard) đã xóa 2026-10-25. Lý do:
+pipeline không có đường chạy (không gì gọi chúng từ khi bỏ MCP; container agent không có binary `suricata`), gate 2/3 chỉ mô phỏng bằng regex trên 14–20 mẫu nên ngưỡng
 precision ≥ 0.95 không có ý nghĩa thống kê. Làm thật cần sidecar Suricata + pcap. Giữ lại dưới dạng Future Work —
 thiết kế dự định (còn hợp lệ nếu làm sau):
 

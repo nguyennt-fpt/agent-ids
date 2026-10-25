@@ -255,7 +255,6 @@ agent-ids/
 │   │   ├── agent_tools.py        # Tool chỉ-đọc cho vòng investigate
 │   │   ├── alert_reader.py       # Đọc EVE JSON / nginx log theo offset
 │   │   ├── firewall.py           # Wrapper iptables
-│   │   ├── ids_manager.py        # Quản lý rule Suricata (không dùng — Trụ 4B đã cắt)
 │   │   └── notifier.py           # Ghi log + webhook
 │   └── prompts/
 │       └── system.md             # System prompt LLM

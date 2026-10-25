@@ -71,25 +71,6 @@
   </table>
 </div>
 
-<div class="section">
-  <h2>Self-Evolving Rules — validation audit (4-gate)</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Timestamp</th>
-        <th>Status</th>
-        <th>Precision</th>
-        <th>F1 before→after</th>
-        <th>Epoch</th>
-        <th>Rule / Reason</th>
-      </tr>
-    </thead>
-    <tbody id="rules-body">
-      <tr><td colspan="6" style="color:#8b949e;text-align:center;padding:24px">No proposed rules yet</td></tr>
-    </tbody>
-  </table>
-</div>
-
 <script>
 // Escape all DB-derived values before interpolating into innerHTML. Attack
 // payloads (<script>, onerror=…) flow through the agent's note/reason fields,
@@ -135,30 +116,8 @@ async function loadEvents() {
     </tr>`).join('');
 }
 
-const RULE_COLOR = {active:'#3fb950', pending:'#e3b341', rejected:'#f85149'};
-
-async function loadRules() {
-  const r = await fetch('/api/rules');
-  const rules = await r.json();
-  const tbody = document.getElementById('rules-body');
-  if (!rules.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:#8b949e;text-align:center;padding:24px">No proposed rules yet</td></tr>';
-    return;
-  }
-  tbody.innerHTML = rules.map(r => `
-    <tr>
-      <td class="ts">${esc(r.ts)}</td>
-      <td style="font-weight:600;color:${RULE_COLOR[r.status] || '#8b949e'}">${esc((r.status||'').toUpperCase())}</td>
-      <td>${r.precision != null ? Number(r.precision).toFixed(2) : ''}</td>
-      <td>${r.f1_before != null ? Number(r.f1_before).toFixed(3) : ''} → ${r.f1_after != null ? Number(r.f1_after).toFixed(3) : ''}</td>
-      <td>${r.epoch ?? ''}</td>
-      <td style="max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-          title="${esc(r.rule)}">${esc(r.reason)}</td>
-    </tr>`).join('');
-}
-
 async function refresh() {
-  await Promise.all([loadStats(), loadEvents(), loadRules()]);
+  await Promise.all([loadStats(), loadEvents()]);
 }
 
 refresh();

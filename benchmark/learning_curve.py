@@ -90,14 +90,6 @@ def epoch_metrics(sent: dict, dec: dict) -> tuple[float, float]:
 
 def run(epochs: int, memory: str, target: str, delay: float):
     mem_on = memory == "on"
-    # propose_rule datasets visible to the agent container
-    for fn in ("golden.jsonl", "holdout.jsonl"):
-        src = os.path.join(HERE, "golden_set", fn)
-        if os.path.exists(src):
-            import shutil
-            os.makedirs(AGENT_DATA, exist_ok=True)
-            shutil.copy(src, os.path.join(AGENT_DATA, fn))
-
     clear_experience()
     corpus_idx = load_corpus_index()
     out_csv = os.path.join(REPORT, f"curve_{memory}.csv")
