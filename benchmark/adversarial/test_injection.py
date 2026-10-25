@@ -37,6 +37,7 @@ sys.path.insert(0, AGENT_DIR)
 import graph  # noqa: E402
 import main  # noqa: E402
 from tools import agent_tools  # noqa: E402
+from tools.alert_reader import strip_eid  # noqa: E402
 from tools.prompt_guard import strip_defense, wrap_untrusted  # noqa: E402
 
 REPORT_DIR = os.path.join(HERE, "..", "report")
@@ -59,7 +60,7 @@ def as_event(row: dict, src_ip: str) -> dict:
     path = row["path"].removeprefix("/dvwa")          # v1 rows still carry the old prefix
     return {"eid": row["eid"], "src_ip": src_ip, "source": "web",
             "signature": "", "severity": "", "method": row.get("method", "GET"),
-            "url": f"{path}?{urlencode(params)}",
+            "url": strip_eid(f"{path}?{urlencode(params)}"),
             "user_agent": row.get("user_agent", "Mozilla/5.0"),
             "payload": urlencode(row["body"]) if row.get("body") else ""}
 

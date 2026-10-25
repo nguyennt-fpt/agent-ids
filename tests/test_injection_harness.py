@@ -78,5 +78,5 @@ def test_as_event_is_a_web_event_without_ids_hints():
     ev = harness.as_event({"eid": "e1", "path": "/dvwa/vulnerabilities/exec/", "method": "POST",
                            "params": {}, "body": {"ip": "x", "Submit": "Submit"}}, "192.0.2.10")
     assert ev["source"] == "web" and ev["signature"] == "" and ev["severity"] == ""
-    assert ev["url"] == "/vulnerabilities/exec/?eid=e1"          # old /dvwa prefix dropped
+    assert ev["url"] == "/vulnerabilities/exec/"    # old /dvwa prefix dropped; eid not shown
     assert ev["payload"] == "ip=x&Submit=Submit" and ev["src_ip"] == "192.0.2.10"
