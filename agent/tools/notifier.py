@@ -12,7 +12,7 @@ _db_ready = False
 
 
 # columns added after the initial release (safe incremental migration)
-_EXTRA_COLUMNS = ("mode", "eid", "mitre", "severity", "note")
+_EXTRA_COLUMNS = ("mode", "eid", "mitre", "severity", "note", "confidence")
 
 
 def _ensure_db() -> None:
@@ -33,7 +33,8 @@ def _ensure_db() -> None:
             eid       TEXT,
             mitre     TEXT,
             severity  TEXT,
-            note      TEXT
+            note      TEXT,
+            confidence TEXT
         )
     """)
     # migrate older DBs that predate the extra columns
@@ -48,7 +49,7 @@ def _ensure_db() -> None:
 
 def send_alert(message: str, src_ip: str = "", attack_type: str = "", action: str = "",
                eid: str = "", mode: str = "", mitre: str = "", severity: str = "",
-               note: str = "") -> dict:
+               note: str = "", confidence: float | None = None) -> dict:
     """Log event to SQLite and optionally send to webhook."""
     _ensure_db()
     ts = datetime.utcnow().isoformat()
@@ -56,8 +57,9 @@ def send_alert(message: str, src_ip: str = "", attack_type: str = "", action: st
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "INSERT INTO events (ts, src_ip, attack, action, detail, mode, eid, "
-        "mitre, severity, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (ts, src_ip, attack_type, action, message, mode, eid, mitre, severity, note),
+        "mitre, severity, note, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (ts, src_ip, attack_type, action, message, mode, eid, mitre, severity, note,
+         confidence),
     )
     conn.commit()
     conn.close()

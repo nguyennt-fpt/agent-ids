@@ -65,5 +65,5 @@ def record_decision(*, eid: str, src_ip: str, attack: str, action: str,
             print(f"[BLOCK-FAIL] {src_ip}: {res}")   # don't report a block that didn't happen
     msg = f"[{mode}] {action.upper()} {attack} eid={eid} conf={confidence} :: {reason}"
     send_alert(msg, src_ip=src_ip, attack_type=attack, action=action, eid=eid,
-               mode=mode, mitre=mitre, severity=severity, note=note)
+               mode=mode, mitre=mitre, severity=severity, note=note, confidence=confidence)
     print(msg)

@@ -57,6 +57,7 @@ done
 
 "$PY" "$HERE/plot.py"
 "$PY" "$HERE/bootstrap_ci.py"      # paired 95% CI over requests, incl. each mode - rule_based
+"$PY" "$HERE/calibration.py"       # does the agent's confidence match how often it is right?
 echo "Done. See $HERE/report/summary.csv, report/ci.csv and report/*.png"
 
 # REPORT_TAG keeps this run's results apart from the next run (which clears the
@@ -64,7 +65,8 @@ echo "Done. See $HERE/report/summary.csv, report/ci.csv and report/*.png"
 if [ -n "${REPORT_TAG:-}" ]; then
   dest="$HERE/report/$REPORT_TAG"
   mkdir -p "$dest"
-  cp "$RAW" "$HERE/report/summary.csv" "$HERE/report/preds.jsonl" "$HERE/report/ci.csv" "$dest/"
+  cp "$RAW" "$HERE/report/summary.csv" "$HERE/report/preds.jsonl" "$HERE/report/ci.csv" \
+     "$HERE/report/calibration.csv" "$dest/"
   cp "$HERE"/report/*.png "$dest/" 2>/dev/null || true
   echo "Archived to $dest"
 fi

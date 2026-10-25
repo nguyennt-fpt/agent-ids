@@ -50,19 +50,32 @@ def load_sent(path: str) -> dict:
     return gt
 
 
+def _float(v) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_decisions(db: str, mode: str) -> dict:
-    """eid -> {pred_malicious, first_flag_ts, mitre}."""
+    """eid -> {pred_malicious, first_flag_ts, mitre, confidence}. confidence is
+    the deciding row's (first block/warn, else the first row); None on a DB
+    that predates the column."""
     conn = sqlite3.connect(db)
+    has_conf = "confidence" in {r[1] for r in conn.execute("PRAGMA table_info(events)")}
     rows = conn.execute(
-        "SELECT eid, action, ts, mitre FROM events "
+        f"SELECT eid, action, ts, mitre, {'confidence' if has_conf else 'NULL'} FROM events "
         "WHERE mode=? AND eid IS NOT NULL AND eid<>''",
         (mode,),
     ).fetchall()
     conn.close()
     out: dict[str, dict] = {}
-    for eid, action, ts, mitre in rows:
-        d = out.setdefault(eid, {"pred_malicious": False, "first_flag_ts": None, "mitre": ""})
+    for eid, action, ts, mitre, conf in rows:
+        d = out.setdefault(eid, {"pred_malicious": False, "first_flag_ts": None, "mitre": "",
+                                 "confidence": _float(conf)})
         if action in MALICIOUS_ACTIONS:
+            if not d["pred_malicious"]:
+                d["confidence"] = _float(conf)
             d["pred_malicious"] = True
             ep = _to_epoch(ts)
             if d["first_flag_ts"] is None or ep < d["first_flag_ts"]:
@@ -155,7 +168,8 @@ def main() -> None:
         d = dec.get(eid)
         pred_mal = bool(d and d["pred_malicious"])
         preds.append({"mode": args.mode, "run": args.run, "eid": eid,
-                      "label": g["label"], "group": g["group"], "pred": pred_mal})
+                      "label": g["label"], "group": g["group"], "pred": pred_mal,
+                      "confidence": d["confidence"] if d else None})
 
         if gt_mal and pred_mal:
             tp += 1

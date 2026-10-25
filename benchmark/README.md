@@ -38,6 +38,7 @@ N=5 TARGET=http://localhost bash run_ab.sh
 #   report/summary.csv      — mean±std mỗi mode
 #   report/preds.jsonl      — dự đoán từng eid mỗi run (đầu vào bootstrap)
 #   report/ci.csv           — 95% CI bootstrap ghép cặp theo request, gồm "mode - rule_based"
+#   report/calibration.csv  — confidence của agent có khớp tỉ lệ đúng không (ECE; + reliability.png nếu có matplotlib)
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
 # REPORT_TAG=<tên> → sao kết quả vào report/<tên>/ (lần chạy sau xóa các file ở report/)
 ```
