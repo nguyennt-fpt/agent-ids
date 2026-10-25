@@ -3,7 +3,7 @@
 import json
 
 import main
-from tools.alert_reader import normalize_alert, prime_position, tail_new_lines
+from tools.alert_reader import normalize_alert, prime_position, strip_eid, tail_new_lines
 
 
 def _append(path, text):
@@ -88,6 +88,31 @@ def test_web_event_carries_logged_post_body(tmp_path, monkeypatch):
     (ev,) = main.collect_agent_events([], decided=set())
     assert ev["payload"] == "ip=8.8.8.8&Submit=Submit"
     assert ev["src_ip"] == "198.51.100.10"
+
+
+def test_strip_eid_drops_only_the_eid_parameter():
+    assert strip_eid("/p?a=1&eid=e1&b=2") == "/p?a=1&b=2"
+    assert strip_eid("/p?eid=e1&b=2") == "/p?b=2"
+    assert strip_eid("/p?a=1&eid=e1") == "/p?a=1"
+    assert strip_eid("/p?eid=e1") == "/p"
+    assert strip_eid("GET /p?id=1&eid=e1 HTTP/1.1 Host: x") == "GET /p?id=1 HTTP/1.1 Host: x"
+    assert strip_eid("/p?xeid=1&id=2") == "/p?xeid=1&id=2"
+    assert strip_eid("/p?id=1") == "/p?id=1"                    # real traffic: unchanged
+
+
+def test_model_is_shown_events_without_the_eid(tmp_path, monkeypatch):
+    log = str(tmp_path / "access.json.log")
+    monkeypatch.setattr(main, "NGINX_LOG", log)
+    prime_position(log)
+    _append(log, _nginx_line("e1"))
+    alerts = [{"eid": "e2", "src_ip": "203.0.113.10", "signature": "SQLi", "severity": 1,
+               "url": "/vulnerabilities/sqli/?id=1&eid=e2",
+               "payload": "GET /vulnerabilities/sqli/?id=1&eid=e2 HTTP/1.1"}]
+    todo = main.collect_agent_events(alerts, decided=set())
+    assert [e["eid"] for e in todo] == ["e2", "e1"]               # still keyed by eid
+    assert [e["url"] for e in todo] == ["/vulnerabilities/sqli/?id=1",
+                                        "/dvwa/vulnerabilities/sqli/?id=1"]
+    assert todo[0]["payload"] == "GET /vulnerabilities/sqli/?id=1 HTTP/1.1"
 
 
 def test_web_line_dropped_when_ids_alert_has_same_eid(tmp_path, monkeypatch):

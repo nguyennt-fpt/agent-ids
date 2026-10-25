@@ -1,9 +1,11 @@
 import hashlib
 import json
 import os
+import re
 from urllib.parse import urlparse, parse_qs
 
 _last_pos: dict[str, int] = {}
+_EID_PARAM = re.compile(r"([?&])eid=[^&\s#]*(&?)")
 
 
 def extract_eid(url: str) -> str:
@@ -14,6 +16,14 @@ def extract_eid(url: str) -> str:
         return parse_qs(urlparse(url).query).get("eid", [""])[0]
     except Exception:
         return ""
+
+
+def strip_eid(text: str) -> str:
+    """Drop the benchmark's `eid` query parameter from a URL or raw request —
+    the model is shown events without it (the eid stays a separate field).
+    Triaged alone, the model read the random hex token as an encoded payload
+    and flagged plain requests (N1). Real traffic has no eid: no-op."""
+    return _EID_PARAM.sub(lambda m: m.group(1) if m.group(2) else "", text or "")
 
 
 def auto_eid(alert: dict) -> str:

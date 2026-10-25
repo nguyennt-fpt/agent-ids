@@ -24,7 +24,7 @@ import httpx
 import approvals
 from actions import SEV_MAP, guess_attack, record_decision, rule_flags
 from tools.alert_reader import (
-    extract_eid, normalize_alert, prime_position, read_new_alerts, tail_new_lines,
+    extract_eid, normalize_alert, prime_position, read_new_alerts, strip_eid, tail_new_lines,
 )
 from tools.firewall import cleanup_stale_blocks
 
@@ -106,7 +106,8 @@ def collect_agent_events(alerts: list[dict], decided: set,
                          include_web: bool = True) -> list[dict]:
     """Source 1: Suricata alerts. Source 2 (unless include_web=False, the
     agent_ids ablation): nginx requests Suricata did NOT alert on. Returns the
-    dedup'd todo list, skipping already-decided eids."""
+    dedup'd todo list, skipping already-decided eids. url/payload go to the
+    model without the benchmark's eid parameter (strip_eid)."""
     events: list[dict] = []
     alert_eids: set[str] = set()
     for a in alerts:
@@ -116,8 +117,8 @@ def collect_agent_events(alerts: list[dict], decided: set,
         events.append({
             "eid": eid, "src_ip": a.get("src_ip", ""), "source": "ids",
             "signature": a.get("signature", ""), "severity": a.get("severity", ""),
-            "method": a.get("method", ""), "url": a.get("url", ""),
-            "user_agent": a.get("user_agent", ""), "payload": a.get("payload", ""),
+            "method": a.get("method", ""), "url": strip_eid(a.get("url", "")),
+            "user_agent": a.get("user_agent", ""), "payload": strip_eid(a.get("payload", "")),
         })
 
     # isfile (not exists): the stock nginx image symlinks access.log -> /dev/stdout;
@@ -140,7 +141,7 @@ def collect_agent_events(alerts: list[dict], decided: set,
             events.append({
                 "eid": eid, "src_ip": rec.get("remote_addr", ""), "source": "web",
                 "signature": "", "severity": "", "method": rec.get("method", ""),
-                "url": uri, "user_agent": rec.get("http_user_agent", ""),
+                "url": strip_eid(uri), "user_agent": rec.get("http_user_agent", ""),
                 # POST form body (nginx logs $request_body) — same 300-char cap as IDS payloads
                 "payload": (rec.get("request_body", "") or "")[:300],
             })
