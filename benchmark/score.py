@@ -129,6 +129,8 @@ def main() -> None:
                     help="DB-stable seconds (non-agent modes without --alerted)")
     ap.add_argument("--timeout", type=float, default=600)
     ap.add_argument("--alerted", help="JSON list of alerted eids (alerted_eids.py)")
+    ap.add_argument("--preds", default=os.path.join(REPORT_DIR, "preds.jsonl"),
+                    help="append per-eid predictions here (input of bootstrap_ci.py)")
     args = ap.parse_args()
 
     gt = load_sent(args.sent)
@@ -147,10 +149,13 @@ def main() -> None:
     # MITRE accuracy over correctly-detected attacks (true positives)
     mitre_total = mitre_hit = 0
 
+    preds = []
     for eid, g in gt.items():
         gt_mal = g["label"] == "malicious"
         d = dec.get(eid)
         pred_mal = bool(d and d["pred_malicious"])
+        preds.append({"mode": args.mode, "run": args.run, "eid": eid,
+                      "label": g["label"], "group": g["group"], "pred": pred_mal})
 
         if gt_mal and pred_mal:
             tp += 1
@@ -202,6 +207,9 @@ def main() -> None:
         if new:
             w.writeheader()
         w.writerow(row)
+    with open(args.preds, "a", encoding="utf-8") as f:
+        for p in preds:
+            f.write(json.dumps(p) + "\n")
 
     print(f"[SCORE] {args.mode} run{args.run}: "
           f"P={precision:.2f} R={recall:.2f} F1={f1:.2f} FPR={fpr:.2f} "

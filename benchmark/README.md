@@ -16,7 +16,10 @@ Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIM
 - Quyết định nhị phân: malicious (`block`/`warn`) vs benign (`log`/không có quyết định).
 - So ground-truth (`label` trong corpus) → **Precision / Recall / F1 / FPR / Accuracy / MTTB**.
 - Request benign không sinh alert → không có entry → tính là dự đoán benign (đã xử lý trong `score.py`).
-- LLM non-deterministic → chạy **N=5**, báo cáo **mean ± std**.
+- LLM non-deterministic → chạy **N=5**, báo cáo **mean ± std**. std đó chỉ đo dao động của model trên *cùng*
+  request; độ bất định do *chọn request nào* đo bằng **bootstrap ghép cặp theo request** (`bootstrap_ci.py`):
+  lấy mẫu lại `eid` có hoàn lại, cùng mẫu cho mọi mode. Chênh lệch "mode − rule_based" chỉ là bằng chứng khi
+  CI 95% không chứa 0.
 
 ## Chạy
 
@@ -33,6 +36,8 @@ N=5 TARGET=http://localhost bash run_ab.sh
 # Kết quả:
 #   report/summary_raw.csv  — mỗi dòng 1 run
 #   report/summary.csv      — mean±std mỗi mode
+#   report/preds.jsonl      — dự đoán từng eid mỗi run (đầu vào bootstrap)
+#   report/ci.csv           — 95% CI bootstrap ghép cặp theo request, gồm "mode - rule_based"
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
 ```
 

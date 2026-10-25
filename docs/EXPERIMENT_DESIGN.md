@@ -44,6 +44,8 @@ Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
 - **Benign vắng mặt:** request benign không match rule → không có entry eve.json → đối chiếu danh sách `eid` đã gửi (vắng = benign), không chỉ đọc eve.json.
 - **Sync:** chờ tất cả `eid` vào SQLite (hoặc timeout) trước khi score (tránh race polling 5s).
 - **Khoa học:** LLM non-deterministic → N=5 lần, báo cáo mean ± std. **Không hứa con số trước.**
+- **Bất định do mẫu:** std qua N run không đo được việc corpus chỉ có ~100 request → báo cáo thêm 95% CI bootstrap
+  ghép cặp theo request (`benchmark/bootstrap_ci.py`); khẳng định "agent > rule_based" chỉ khi CI của chênh lệch không chứa 0.
 
 ## Chống bias (rủi ro nghiêm trọng nhất)
 

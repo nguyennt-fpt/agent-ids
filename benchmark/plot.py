@@ -11,10 +11,6 @@ import csv
 import os
 import statistics as st
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 HERE = os.path.dirname(__file__)
 REPORT_DIR = os.path.join(HERE, "report")
 RAW = os.path.join(REPORT_DIR, "summary_raw.csv")
@@ -79,6 +75,14 @@ def _bar(ax, metrics, agg, title, ylabel):
 
 
 def plots(agg: dict) -> None:
+    # imported here: the EC2 host has no matplotlib, and summary.csv must not depend on it
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("[PLOT] matplotlib not installed — PNGs skipped (summary.csv written)")
+        return
     fig, ax = plt.subplots(figsize=(8, 5))
     _bar(ax, ["precision", "recall", "f1", "fpr", "accuracy"], agg,
          "Detection quality by RESPONSE_MODE (mean±std)", "score")

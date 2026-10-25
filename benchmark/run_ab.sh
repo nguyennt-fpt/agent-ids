@@ -19,7 +19,7 @@ SPLIT_ARGS=()
 RAW="$HERE/report/summary_raw.csv"
 
 mkdir -p "$HERE/report"
-rm -f "$RAW"
+rm -f "$RAW" "$HERE/report/preds.jsonl"   # preds.jsonl: per-eid predictions for bootstrap_ci.py
 
 # load the model before an LLM run, so the first batch's MTTB doesn't include a ~30s
 # model load; same num_ctx as the agent, or Ollama reloads it on the first real call
@@ -56,4 +56,5 @@ for mode in "${MODES[@]}"; do
 done
 
 "$PY" "$HERE/plot.py"
-echo "Done. See $HERE/report/summary.csv and report/*.png"
+"$PY" "$HERE/bootstrap_ci.py"      # paired 95% CI over requests, incl. each mode - rule_based
+echo "Done. See $HERE/report/summary.csv, report/ci.csv and report/*.png"
