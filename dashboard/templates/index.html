@@ -33,6 +33,16 @@
   .ts { color: #8b949e; font-size: .75rem; font-family: monospace; }
   .ip { font-family: monospace; }
   .refresh-hint { font-size: .75rem; color: #8b949e; padding: 0 24px 12px; }
+  .approvals { border: 1px solid #e3b341; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .approvals .hint { font-size: .8rem; color: #8b949e; margin-bottom: 10px; }
+  .approvals input { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+                     border-radius: 6px; padding: 4px 8px; font-size: .8rem; }
+  .btn { border: 1px solid #30363d; border-radius: 6px; padding: 3px 10px; margin-right: 4px;
+         background: #21262d; color: #c9d1d9; font-size: .8rem; cursor: pointer; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-approve { border-color: #f85149; color: #f85149; }
+  .btn-warn    { border-color: #e3b341; color: #e3b341; }
+  .btn-benign  { border-color: #3fb950; color: #3fb950; }
 </style>
 </head>
 <body>
@@ -50,6 +60,29 @@
 </div>
 
 <div class="refresh-hint">Auto-refreshes every 5 seconds</div>
+
+<div class="section">
+  <h2>Pending approvals — blocks waiting for a human</h2>
+  <div class="approvals">
+    <div class="hint" id="approvals-hint">
+      Approve = block the source · Warn = attack, don't firewall · Benign = false positive (taught to the
+      agent's memory). Unanswered items become Warn after the timeout — never an unreviewed block.
+    </div>
+    <div class="hint">
+      Approval token: <input type="password" id="approval-token" placeholder="APPROVAL_TOKEN" size="24">
+      <button class="btn" id="save-token">Save</button> <span id="approval-msg"></span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Waiting</th><th>Source IP</th><th>Attack</th><th>Confidence</th>
+            <th>Analyst Note</th><th>Decision</th></tr>
+      </thead>
+      <tbody id="approvals-body">
+        <tr><td colspan="6" style="color:#8b949e;text-align:center;padding:16px">Nothing waiting</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 
 <div class="section">
   <h2>Recent Security Events</h2>
@@ -116,8 +149,64 @@ async function loadEvents() {
     </tr>`).join('');
 }
 
+// ─── HITL approvals (G5): the dashboard's only write ─────────────────────────
+// The token lives in this browser only; storage can be unavailable (private mode).
+function getToken() { try { return localStorage.getItem('approvalToken') || ''; } catch (e) { return ''; } }
+function setToken(t) { try { localStorage.setItem('approvalToken', t); } catch (e) {} }
+document.getElementById('approval-token').value = getToken();
+document.getElementById('save-token').addEventListener('click', () => {
+  setToken(document.getElementById('approval-token').value.trim());
+  document.getElementById('approval-msg').textContent = 'saved';
+});
+
+let approvalsEnabled = false;
+
+async function loadApprovals() {
+  const r = await fetch('/api/approvals');
+  const d = await r.json();
+  approvalsEnabled = d.enabled;
+  const tbody = document.getElementById('approvals-body');
+  if (!d.enabled) {
+    document.getElementById('approval-msg').textContent =
+      'approvals disabled: start the dashboard with APPROVAL_TOKEN set';
+  }
+  if (!d.pending.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#8b949e;text-align:center;padding:16px">Nothing waiting</td></tr>';
+    return;
+  }
+  const off = d.enabled ? '' : 'disabled';
+  tbody.innerHTML = d.pending.map(p => `
+    <tr>
+      <td class="ts">${Math.round((d.now - p.ts) / 60)} min</td>
+      <td class="ip">${esc(p.src_ip)}</td>
+      <td class="attack">${esc(p.attack_type)}</td>
+      <td>${p.confidence != null ? Number(p.confidence).toFixed(2) : ''}</td>
+      <td style="max-width:420px">${esc(p.note)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-approve" data-eid="${esc(p.eid)}" data-answer="approve" ${off}>Approve</button>
+        <button class="btn btn-warn" data-eid="${esc(p.eid)}" data-answer="warn" ${off}>Warn</button>
+        <button class="btn btn-benign" data-eid="${esc(p.eid)}" data-answer="benign" ${off}>Benign</button>
+      </td>
+    </tr>`).join('');
+}
+
+// one delegated handler: no inline JS built from DB values
+document.getElementById('approvals-body').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-eid]');
+  if (!b || !approvalsEnabled) return;
+  const msg = document.getElementById('approval-msg');
+  const r = await fetch('/api/approvals/' + encodeURIComponent(b.dataset.eid), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Approval-Token': getToken()},
+    body: JSON.stringify({answer: b.dataset.answer}),
+  });
+  msg.textContent = r.ok ? `${b.dataset.answer}: sent — the agent resumes on its next poll`
+                         : ((await r.json()).error || 'failed');
+  await loadApprovals();
+});
+
 async function refresh() {
-  await Promise.all([loadStats(), loadEvents()]);
+  await Promise.all([loadStats(), loadEvents(), loadApprovals()]);
 }
 
 refresh();

@@ -1,16 +1,22 @@
+import hmac
 import os
 import sqlite3
+import time
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 DB_PATH = os.getenv("DB_PATH", "/app/data/events.db")
+# The dashboard is read-only except for answering escalated blocks (G5), and
+# that needs this token; unset = approvals disabled (no open write endpoint).
+APPROVAL_TOKEN = os.getenv("APPROVAL_TOKEN", "")
+ANSWERS = ("approve", "warn", "benign")       # same as agent/approvals.py
 
 app = Flask(__name__)
 
 
 def _get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5)    # the agent writes the same file
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -53,6 +59,47 @@ def api_events():
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/approvals")
+def api_approvals():
+    """Blocks the HITL gate escalated that still wait for a human (G5). The
+    `approvals` table belongs to agent/approvals.py."""
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            "SELECT eid, ts, src_ip, attack_type, confidence, note FROM approvals "
+            "WHERE answer IS NULL AND resumed = 0 ORDER BY id").fetchall()
+        pending = [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        pending = []          # the agent creates the table on its first escalation
+    conn.close()
+    return jsonify({"enabled": bool(APPROVAL_TOKEN), "now": time.time(), "pending": pending})
+
+
+@app.route("/api/approvals/<eid>", methods=["POST"])
+def api_answer(eid):
+    """Answer one escalated block — the dashboard's only write. The token comes
+    in a custom header, which a cross-site form cannot set (no CSRF)."""
+    token = request.headers.get("X-Approval-Token", "")
+    if not APPROVAL_TOKEN or not hmac.compare_digest(token.encode(), APPROVAL_TOKEN.encode()):
+        return jsonify({"error": "approval token missing or wrong"}), 403
+    answer = (request.get_json(silent=True) or {}).get("answer")
+    if answer not in ANSWERS:
+        return jsonify({"error": f"answer must be one of {', '.join(ANSWERS)}"}), 400
+    conn = _get_db()
+    try:
+        cur = conn.execute("UPDATE approvals SET answer = ?, answered_ts = ? "
+                           "WHERE eid = ? AND answer IS NULL AND resumed = 0",
+                           (answer, time.time(), eid))
+        conn.commit()
+        changed = cur.rowcount
+    except sqlite3.OperationalError:
+        changed = 0
+    conn.close()
+    if not changed:
+        return jsonify({"error": "no open approval for this eid"}), 404
+    return jsonify({"eid": eid, "answer": answer})
 
 
 @app.route("/api/stats")

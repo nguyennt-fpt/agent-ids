@@ -126,8 +126,11 @@ services:
       - MEMORY_ENABLED=${MEMORY_ENABLED:-false}
       - EPOCH=${EPOCH:-0}
       - EMBED_MODEL=nomic-embed-text
-      # headless: auto-approve high-risk blocks (real HITL only in demo_hitl.py)
+      # headless (benchmark): auto-approve high-risk blocks. AUTO_APPROVE=false = real
+      # HITL (G5): escalated blocks wait for an answer on the dashboard / approve.py
       - AUTO_APPROVE=${AUTO_APPROVE:-true}
+      - HITL_ALL_BLOCKS=${HITL_ALL_BLOCKS:-false}   # true: every block asks, not only < 0.90
+      - HITL_TIMEOUT_S=${HITL_TIMEOUT_S:-900}       # unanswered -> warn, never a block
       # Optional LangSmith tracing (bài 10) — "glass box" traces of every
       # node / LLM / tool call. Set API key + TRACING_V2=true to enable.
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
@@ -149,9 +152,11 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./agent/data:/app/data:ro
+      # rw only for the HITL approvals table (POST /api/approvals/<eid>); everything else is read
+      - ./agent/data:/app/data
     environment:
       - DB_PATH=/app/data/events.db
+      - APPROVAL_TOKEN=${APPROVAL_TOKEN:-}     # unset = approve buttons disabled
     networks:
       - security-net
     restart: unless-stopped
