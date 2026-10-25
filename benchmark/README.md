@@ -68,7 +68,8 @@ production**: `main.process_agent_events` → graph (structured output, salvage,
 fail-closed. Hai lớp phòng thủ bật/tắt **độc lập** (thiết kế 2×2): phần DEFENSE trong `prompts/system.md`, và bọc
 `<<UNTRUSTED_DATA>>` (`wrap_untrusted`). Event dạng nguồn web (không có signature IDS gợi ý). Mỗi batch ghép mẫu
 injection với vài tấn công sạch của tập dev → đo cả **bypass lan sang** event khác trong batch. Không ghi DB, không
-đụng firewall, tool điều tra thấy log rỗng.
+đụng firewall, tool điều tra thấy log rỗng. Mặc định agent triage **từng event** (`TRIAGE_BATCH=1`, N1) → mỗi event
+một lần gọi model, lan sang = 0 theo cấu trúc; thêm `-e TRIAGE_BATCH=15` vào `docker exec` để đo lan sang khi gộp lô.
 
 ```bash
 # chạy trong container agent (có langgraph + Ollama) — trên EC2:
