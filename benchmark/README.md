@@ -54,9 +54,10 @@ python adversarial/test_injection.py --phase both
 
 Phòng thủ gồm: (1) **prompt** — fence payload trong `<<UNTRUSTED_DATA>>` + chỉ dẫn coi là dữ liệu; (2) **schema** — `validate_decisions` ép `action` về enum (action lạ→`warn`, không bao giờ tự động benign), clamp confidence, loại field lạ, parse-fail→an toàn.
 
-## Trụ 4 — Experience memory + self-evolving rules
+## Trụ 4 — Experience memory
 
-Đo **learning curve**: agent học từ lỗi qua nhiều epoch (memory on vs off).
+Đo **learning curve**: agent học từ lỗi qua nhiều epoch (memory on vs off). *(Chưa dùng được cho kết luận:
+learning curve còn rò rỉ đáp án — G1 trong `notes/checklist-2026-09.md`.)*
 
 ```bash
 docker exec ollama ollama pull nomic-embed-text     # embedding cho memory
@@ -65,7 +66,8 @@ python learning_curve.py --epochs 5 --memory off
 # -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ theo epoch)
 ```
 
-Rule tự sinh đi qua `agent/tools/rule_validator.py` (4 gate): syntax → shadow (precision≥0.95 trên `golden_set/holdout.jsonl`) → regression (F1 không giảm trên `golden_set/golden.jsonl`) → runtime audit. Xem audit trail tại dashboard (`/api/rules`). Đặt `SURICATA_BIN` để bật gate syntax `suricata -T` thật.
+*Rule tự sinh (Trụ 4B, `agent/tools/rule_validator.py` 4 gate) đã **cắt khỏi phạm vi** — không có đường chạy,
+xem `docs/EXPERIMENT_DESIGN.md` mục "Trụ 4B".*
 
 ### Chạy tay từng bước (debug)
 ```bash

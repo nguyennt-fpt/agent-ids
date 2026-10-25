@@ -57,7 +57,12 @@ Tôi vừa viết rule, vừa viết prompt — nếu tự chế corpus dễ "d�
 
 Đó là network-flow features đã trích xuất (packet count, duration...), không phải HTTP payload thô → không khớp hệ thống phân tích payload-semantics. Corpus web-attack tự thiết kế kiểm soát chính xác 3 nhóm điểm yếu. (CICIDS → Future Work nếu mở rộng network-layer.)
 
-## Trụ 4 — verify rule tự sinh "chuẩn + tiến hóa tích cực"
+## Trụ 4B — rule tự sinh: ĐÃ CẮT khỏi phạm vi (2026-10-25, quyết định E2)
+
+Không đo, không báo cáo. Lý do: pipeline không có đường chạy (không gì gọi `rule_validator`/`ids_manager` từ khi bỏ
+MCP; container agent không có binary `suricata`), gate 2/3 chỉ mô phỏng bằng regex trên 14–20 mẫu nên ngưỡng
+precision ≥ 0.95 không có ý nghĩa thống kê. Làm thật cần sidecar Suricata + pcap. Giữ lại dưới dạng Future Work —
+thiết kế dự định (còn hợp lệ nếu làm sau):
 
 Validation pipeline 4 gate (không tin mù output LLM):
 1. **Syntax** — `suricata -T -S candidate.rules` offline, fail → reject.
