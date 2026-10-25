@@ -41,18 +41,26 @@ N=5 TARGET=http://localhost bash run_ab.sh
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
 ```
 
-## Trụ 2 — Adversarial robustness (prompt injection)
+## Trụ 3 — Adversarial robustness (prompt injection)
 
-Đo tỷ lệ **bypass** (attack thật bị agent phân loại benign) trước/sau khi bật phòng thủ. Tái dùng đúng code defense chạy trong production (`agent/tools/prompt_guard.py`).
+Đo tỷ lệ **bypass** (tấn công thật mà quyết định cuối không phải block/warn) khi mỗi request đi qua **đúng đường
+production**: `main.process_agent_events` → graph (structured output, salvage, investigate, act), gồm retry +
+fail-closed. Hai lớp phòng thủ bật/tắt **độc lập** (thiết kế 2×2): phần DEFENSE trong `prompts/system.md`, và bọc
+`<<UNTRUSTED_DATA>>` (`wrap_untrusted`). Event dạng nguồn web (không có signature IDS gợi ý). Mỗi batch ghép mẫu
+injection với vài tấn công sạch của tập dev → đo cả **bypass lan sang** event khác trong batch. Không ghi DB, không
+đụng firewall, tool điều tra thấy log rỗng.
 
 ```bash
-python adversarial/build_injections.py        # sinh injections.jsonl (12 kỹ thuật)
-python adversarial/test_injection.py --phase both
-# -> report/adversarial_before.csv, adversarial_after.csv
-# -> in "Defense effect: bypass X% -> Y%"
+# chạy trong container agent (có langgraph + Ollama) — trên EC2:
+docker cp benchmark agent:/tmp/bench
+docker exec -e AGENT_DIR=/app agent python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
+docker cp agent:/tmp/bench/report/adversarial_graph.csv benchmark/report/
+# -> bypass + bypass lan sang theo từng điều kiện, tác động riêng của từng lớp phòng thủ, kèm 95% CI
 ```
 
-Phòng thủ gồm: (1) **prompt** — fence payload trong `<<UNTRUSTED_DATA>>` + chỉ dẫn coi là dữ liệu; (2) **schema** — `validate_decisions` ép `action` về enum (action lạ→`warn`, không bao giờ tự động benign), clamp confidence, loại field lạ, parse-fail→an toàn.
+CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu hiện có **12** (`injections.jsonl`)
+→ CI sẽ rộng; mở rộng bộ mẫu là việc riêng. Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
+`agent/schemas.py` và luôn bật — không phải biến của thí nghiệm.
 
 ## Trụ 4 — Experience memory
 
