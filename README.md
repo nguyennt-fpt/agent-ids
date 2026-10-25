@@ -105,11 +105,14 @@ scp -i your-key.pem -r ./agent-ids ubuntu@<EC2_IP>:~/
 ### 4.1 Pull Suricata rules (một lần)
 
 ```bash
-# Chạy suricata-update để download ET Open rules
+# Chạy suricata-update để download ET Open rules. disable.conf tắt các rule
+# Modbus/DNP3 (thiếu chúng thì `suricata -T` của suricata-update fail) và rule nhiễu
+# 2221036 — xem ids/rules/disable.conf
 docker run --rm \
   -v $(pwd)/ids/rules:/etc/suricata/rules \
   jasonish/suricata:latest \
-  suricata-update --no-reload --output /etc/suricata/rules
+  suricata-update --no-reload --disable-conf /etc/suricata/rules/disable.conf \
+    --output /etc/suricata/rules
 ```
 
 ### 4.2 Start tất cả services
