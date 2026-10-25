@@ -7,4 +7,5 @@ watchdog==4.0.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
 langchain-ollama>=0.3.0   # with_structured_output(method="json_schema", include_raw=True)
+langgraph-checkpoint-sqlite>=2.0   # HITL outside the demo: paused runs survive a restart
 pydantic>=2.7

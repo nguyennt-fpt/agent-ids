@@ -260,12 +260,22 @@ def risk_gate_node(state: AgentState) -> dict:
         } for d in pending],
     })
 
-    approvals = review if isinstance(review, dict) else {}
+    # only an explicit approve keeps a block: deny / warn / no answer -> warn
+    # (never an unreviewed block); benign = the human says false positive
+    answers = review if isinstance(review, dict) else {}
     for d in decisions:
         eid = str(d.get("eid", ""))
-        if needs_human(d.get("action", "log"), d.get("confidence", 0.0)) \
-                and approvals.get(eid) == "deny":
-            print(f"[GATE] human DENIED block eid={eid} -> downgraded to warn")
+        if not needs_human(d.get("action", "log"), d.get("confidence", 0.0)):
+            continue
+        answer = answers.get(eid)
+        if answer == "approve":
+            print(f"[GATE] human APPROVED block eid={eid}")
+        elif answer == "benign":
+            print(f"[GATE] human marked eid={eid} benign -> log")
+            d.update(action="log", attack_type="none", mitre_technique="", severity="",
+                     reason=f"human: false positive (model said {d.get('attack_type')})")
+        else:
+            print(f"[GATE] block eid={eid} not approved ({answer or 'no answer'}) -> warn")
             d["action"] = "warn"
     return {"decisions": decisions}
 
