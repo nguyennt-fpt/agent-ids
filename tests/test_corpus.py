@@ -76,6 +76,8 @@ def test_recon_chains_are_present_ordered_and_malicious(rows):
     assert [r["body"]["password"] for r in brute] == data["bruteforce"]["passwords"]
     assert all(r["method"] == "POST" and r["path"] == "/login.php" for r in brute)
     assert len({r["actor_ip"] for r in brute}) == 1                    # one scanner per chain
+    for chain in (dirscan, brute):                                     # a burst: contiguous seqs
+        assert [r["seq"] for r in chain] == list(range(chain[0]["seq"], chain[0]["seq"] + len(chain)))
 
 
 def test_declared_families_group_variants(rows):

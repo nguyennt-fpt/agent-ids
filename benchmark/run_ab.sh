@@ -11,6 +11,10 @@ PY="${PYTHON:-python3}"          # Ubuntu hosts have no bare `python`
 N="${N:-5}"
 TARGET="${TARGET:-http://localhost}"
 DELAY="${DELAY:-0.5}"
+# pacing for the agent modes only: at ~4 s/event on the T4, a faster replay makes
+# their MTTB measure a queue, not processing. Rule/WAF decisions are per-request
+# and instant, so they don't depend on pacing and can keep the faster DELAY.
+DELAY_LLM="${DELAY_LLM:-$DELAY}"
 # agent_ids = IDS-only ablation of the agent; waf = OWASP CRS baseline; e.g. MODES=agent
 read -r -a MODES <<< "${MODES:-rule_based naive waf agent agent_ids}"
 # corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers
@@ -45,7 +49,8 @@ for mode in "${MODES[@]}"; do
     sleep 12                      # agent boot (+ ollama readiness check)
     case "$mode" in agent*) warm_model ;; esac
     reset_db                      # clear prior decisions so runs don't mix
-    "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$DELAY" "${SPLIT_ARGS[@]}"
+    d="$DELAY"; case "$mode" in agent*) d="$DELAY_LLM" ;; esac
+    "$PY" "$HERE/replay.py" --target "$TARGET" --delay "$d" "${SPLIT_ARGS[@]}"
     sleep 3                       # let Suricata flush the last alerts
     # eids Suricata alerted on: what rule_based/naive/agent_ids must decide before scoring
     docker compose exec -T agent tail -n 100000 /var/log/suricata/eve.json \

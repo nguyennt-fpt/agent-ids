@@ -13,8 +13,8 @@ script, so the build is reproducible and the payloads are auditable:
                                (directory scan + login brute force).
 
 v2 layout (docs/CORPUS_V2.md): deterministic eids, a benchmark actor per row
-(sent as X-Forwarded-For), interleaved replay order (`seq`) that keeps each
-recon chain in order, and a fixed dev/test split by payload family. Command
+(sent as X-Forwarded-For), interleaved replay order (`seq`) in which each recon
+chain is one contiguous burst, and a fixed dev/test split by payload family. Command
 injection goes as a POST form, as DVWA's exec page does. Run: python build_corpus.py
 """
 
@@ -160,19 +160,21 @@ def _assign_actor(row: dict) -> str:
 
 def _interleave(rows: list[dict]) -> None:
     """Shuffle so a replay (and triage batch) is no longer all-attacks-then-all-
-    benign, but keep each recon chain in its original order among its own slots."""
-    random.Random(SEED).shuffle(rows)
-    chains: dict[str, list[int]] = {}
-    for i, r in enumerate(rows):
-        if r.get("group") == "recon":
-            chains.setdefault(r["family"], []).append(i)
-    for idxs in chains.values():                       # idxs ascending (enumerate order)
-        ordered = sorted((rows[i] for i in idxs), key=lambda r: r["_order"])
-        for pos, r in zip(idxs, ordered):
-            rows[pos] = r
+    benign. Each recon chain is shuffled as ONE unit, in order: a scan or a brute
+    force is a burst — rule 9000050 only fires on 10 logins within 60 s, and
+    spread across the whole replay it never would."""
+    units: list[list[dict]] = []
+    chains: dict[str, list[dict]] = {}
     for r in rows:
-        r.pop("_order", None)
+        if r["group"] == "recon":
+            chains.setdefault(r["family"], []).append(r)
+        else:
+            units.append([r])
+    units += [sorted(c, key=lambda r: r["_order"]) for c in chains.values()]
+    random.Random(SEED).shuffle(units)
+    rows[:] = [r for u in units for r in u]
     for seq, r in enumerate(rows):
+        r.pop("_order", None)
         r["seq"] = seq
 
 
