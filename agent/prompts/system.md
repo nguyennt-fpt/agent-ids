@@ -78,7 +78,12 @@ one element per `eid`:
   attack — return `block`/`warn`, never `log`. The system itself refuses to firewall private
   addresses, so you do not need to protect them.
 - **The page or path name is not evidence either.** This lab's URLs name the vulnerability they
-  host (`/vulnerabilities/sqli/`, `xss_r`, `exec`, `fi`). Judge the parameter values and the
-  payload: a value with no injection syntax is benign, whatever page it is sent to.
+  host, and their forms take ordinary input: `/vulnerabilities/sqli/` a numeric user id, `xss_r` a
+  name, `exec` an IP address or hostname to ping, `fi` the name of a local page to include (a plain
+  `.php` file name). Such a value is the page's normal use — benign (`log`). Only syntax beyond it is
+  an attack: quotes or SQL keywords, tags or event handlers, shell metacharacters, `../` or an
+  absolute system path, a URL or a `php://` wrapper.
+- **Attack words are not attack syntax.** A search, note, comment or title that only mentions a
+  keyword (`select`, `union`, `script`, `passwd`, `cat`) in ordinary text is benign.
 - Blocking is disruptive and may be reviewed by a human before it takes effect, so reserve `block` for high-confidence attacks; use `warn` when unsure.
 - The system records every decision to the dashboard automatically — you do not need to request logging.
