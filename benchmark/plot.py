@@ -27,7 +27,8 @@ def load_raw() -> dict:
         for row in csv.DictReader(f):
             if row["mode"] in by_mode:
                 by_mode[row["mode"]].append(row)
-    return by_mode
+    # only modes that ran (e.g. MODES=agent): an absent mode is not a row of zeros
+    return {m: rows for m, rows in by_mode.items() if rows}
 
 
 def mean_std(rows: list[dict], key: str) -> tuple[float, float]:
@@ -39,7 +40,7 @@ def mean_std(rows: list[dict], key: str) -> tuple[float, float]:
 
 def aggregate(by_mode: dict) -> dict:
     agg = {}
-    for m in MODES:
+    for m in by_mode:
         agg[m] = {k: mean_std(by_mode[m], k) for k in METRICS}
     return agg
 
@@ -49,7 +50,7 @@ def write_summary(agg: dict) -> None:
         cols = ["mode"] + [f"{k}_mean" for k in METRICS] + [f"{k}_std" for k in METRICS]
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
-        for m in MODES:
+        for m in agg:
             row = {"mode": m}
             for k in METRICS:
                 mean, std = agg[m][k]
@@ -61,13 +62,13 @@ def write_summary(agg: dict) -> None:
 
 def _bar(ax, metrics, agg, title, ylabel):
     x = range(len(metrics))
-    width = 0.8 / len(MODES)
-    for i, m in enumerate(MODES):
+    width = 0.8 / len(agg)
+    for i, m in enumerate(agg):
         means = [agg[m][k][0] for k in metrics]
         stds = [agg[m][k][1] for k in metrics]
         ax.bar([p + i * width for p in x], means, width, yerr=stds,
                capsize=3, label=m)
-    ax.set_xticks([p + width * (len(MODES) - 1) / 2 for p in x])
+    ax.set_xticks([p + width * (len(agg) - 1) / 2 for p in x])
     ax.set_xticklabels(metrics, rotation=15)
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -89,9 +90,10 @@ def plots(agg: dict) -> None:
     fig.tight_layout(); fig.savefig(os.path.join(REPORT_DIR, "compare_quality.png"), dpi=130)
 
     fig, ax = plt.subplots(figsize=(5, 5))
-    means = [agg[m]["mttb_s"][0] for m in MODES]
-    stds = [agg[m]["mttb_s"][1] for m in MODES]
-    ax.bar(MODES, means, yerr=stds, capsize=4, color=["#888", "#c66", "#a7a", "#48a", "#8bd"])
+    colors = dict(zip(MODES, ["#888", "#c66", "#a7a", "#48a", "#8bd"]))
+    means = [agg[m]["mttb_s"][0] for m in agg]
+    stds = [agg[m]["mttb_s"][1] for m in agg]
+    ax.bar(list(agg), means, yerr=stds, capsize=4, color=[colors[m] for m in agg])
     ax.set_title("Mean time-to-block (s) — lower=faster"); ax.set_ylabel("seconds")
     fig.tight_layout(); fig.savefig(os.path.join(REPORT_DIR, "compare_mttb.png"), dpi=130)
 
@@ -109,7 +111,7 @@ def print_table(agg: dict) -> None:
         tabulate = None
     headers = ["mode"] + METRICS
     table = []
-    for m in MODES:
+    for m in agg:
         table.append([m] + [f"{agg[m][k][0]:.3f}±{agg[m][k][1]:.3f}" for k in METRICS])
     if tabulate:
         print(tabulate(table, headers=headers, tablefmt="github"))
