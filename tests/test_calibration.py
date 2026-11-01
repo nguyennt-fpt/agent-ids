@@ -8,15 +8,14 @@ from calibration import calibration
 from score import fetch_decisions
 
 
-def _p(conf, correct, mode="agent", malicious=True):
-    pred = malicious if correct else not malicious
-    return {"mode": mode, "label": "malicious" if malicious else "benign", "pred": pred,
+def _p(conf, attack, mode="agent"):
+    return {"mode": mode, "label": "malicious" if attack else "benign", "pred": attack,
             "confidence": conf}
 
 
 def test_ece_and_bins():
-    preds = ([_p(0.95, i < 9) for i in range(10)]          # top bin: acc 0.9 vs conf 0.95
-             + [_p(0.55, i < 3) for i in range(10)]        # low bin: acc 0.3 vs conf 0.55
+    preds = ([_p(0.95, i < 9) for i in range(10)]          # top bin: 90% attacks vs conf 0.95
+             + [_p(0.55, i < 3) for i in range(10)]        # low bin: 30% attacks vs conf 0.55
              + [_p(None, True), _p(0.9, False, mode="rule_based")])   # skipped
     bins, ece, n = calibration(preds, "agent")
     assert n == 20
@@ -27,6 +26,13 @@ def test_ece_and_bins():
 def test_confidence_one_lands_in_the_top_bin():
     bins, _, _ = calibration([_p(1.0, True)], "agent")
     assert bins[0]["bin"] == "[0.9, 1.0]"
+
+
+def test_confidence_is_attack_probability_so_a_sure_benign_log_is_calibrated():
+    # 0.05 on benign requests = "5% attack": right, not "5% sure" (read so before 2026-11 -> ECE 0.95)
+    bins, ece, _ = calibration([_p(0.05, False) for _ in range(10)], "agent")
+    assert bins[0]["attack_rate"] == 0.0
+    assert math.isclose(ece, 0.05)
 
 
 def _db(tmp_path, with_confidence: bool):

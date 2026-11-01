@@ -37,7 +37,7 @@ EVENTS_DB = os.path.join(AGENT_DATA, "events.db")
 os.environ["MEMORY_DB"] = EVENTS_DB
 sys.path.insert(0, HERE)                                   # score.py
 sys.path.insert(0, os.path.join(ROOT, "agent"))            # tools.memory
-from score import load_sent, fetch_decisions, wait_for_decisions  # noqa: E402
+from score import DECISION_TIMEOUT_S, load_sent, fetch_decisions, wait_for_decisions  # noqa: E402
 from tools.memory import record_feedback                   # noqa: E402
 
 
@@ -100,7 +100,7 @@ def replay(split: str, target: str, delay: float) -> dict:
     subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "--target", target,
                     "--delay", str(delay), "--split", split, "--out", out], check=False)
     sent = load_sent(out)
-    wait_for_decisions(EVENTS_DB, "agent", sent, settle_s=15, timeout_s=600)
+    wait_for_decisions(EVENTS_DB, "agent", sent, settle_s=15, timeout_s=DECISION_TIMEOUT_S)
     return sent
 
 

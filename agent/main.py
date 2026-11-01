@@ -173,8 +173,10 @@ def _settle(batch: list[dict], done: set, decided: set, retries: dict) -> None:
         attempts = retries.get(eid, (ev, 0))[1] + 1
         if attempts <= MAX_RETRIES:
             retries[eid] = (ev, attempts)
+            print(f"[AGENT] no decision for eid={eid} -> retry {attempts}/{MAX_RETRIES}")
             continue
         retries.pop(eid, None)
+        print(f"[AGENT] no decision for eid={eid} after {attempts} attempts -> fail-closed warn")
         record_decision(eid=eid, src_ip=ev.get("src_ip", ""), attack="unknown",
                         action="warn", confidence=0.0, mode=RESPONSE_MODE,
                         reason=f"no LLM decision after {attempts} attempts (fail-closed)")

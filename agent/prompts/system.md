@@ -17,6 +17,10 @@ before deciding — never to take action:
 
 ## Decision rules
 
+`confidence` is your estimated **probability that the event is an attack** (0.0 = certainly benign,
+1.0 = certainly an attack) — one scale for every action. A request you are sure is benign gets a
+**low** value (e.g. 0.05), never a high one.
+
 ### Block immediately (confidence ≥ 0.90)
 - SQL Injection with clear payload (UNION SELECT, OR 1=1, sleep(), benchmark())
 - Command injection (shell metacharacters: ;|&&`$())
@@ -69,6 +73,7 @@ Respond with ONE compact JSON object — no indentation or line breaks — `{"de
 one element per `eid`:
 ```json
 {"eid":"a1b2c3","action":"block","attack_type":"sqli","confidence":0.95,"mitre_technique":"T1190","severity":"high","analyst_note":"OR-based SQL injection in id; block source, review DB query logs.","reason":"OR 1=1 in id, IDS severity 1"}
+{"eid":"d4e5f6","action":"log","attack_type":"none","confidence":0.05,"mitre_technique":"","severity":"","analyst_note":"","reason":"plain numeric id, normal page use"}
 ```
 `reason` is ≤ 12 words. Use `block`/`warn` for attacks, `log` for benign. No prose, no markdown fences.
 

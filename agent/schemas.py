@@ -26,7 +26,11 @@ class Decision(BaseModel):
         default="none",
         description="sqli / xss / cmdi / lfi / rfi / bruteforce / scan / none",
     )
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence: float = Field(
+        default=0.0, ge=0.0, le=1.0,
+        description="Probability that the event is an attack: 0 = certainly benign, "
+                    "1 = certainly an attack. One scale for every action, log included.",
+    )
     mitre_technique: str = Field(default="", description="MITRE ATT&CK technique id, e.g. T1190")
     severity: str = Field(default="", description="low / medium / high / critical")
     analyst_note: str = Field(default="", description="1–2 sentence SOC L1 note (what/why/action)")

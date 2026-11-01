@@ -15,7 +15,8 @@ Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIM
 ## Cách đo (tóm tắt)
 - Mỗi request mang `eid` duy nhất trong query string → truy vết qua `eve.json` và SQLite decisions.
 - Quyết định nhị phân: malicious (`block`/`warn`) vs benign (`log`/không có quyết định).
-- So ground-truth (`label` trong corpus) → **Precision / Recall / F1 / FPR / Accuracy / MTTB**.
+- So ground-truth (`label` trong corpus) → **Precision / Recall / F1 / FPR / Accuracy / MTTB**, kèm độ trễ
+  `ttb_p95_s` (p95 time-to-block) và `undecided` (số request chưa có quyết định khi hết giờ chờ — bình thường 0).
 - Request benign không sinh alert → không có entry → tính là dự đoán benign (đã xử lý trong `score.py`).
 - LLM non-deterministic → chạy **N=5**, báo cáo **mean ± std**. std đó chỉ đo dao động của model trên *cùng*
   request; độ bất định do *chọn request nào* đo bằng **bootstrap ghép cặp theo request** (`bootstrap_ci.py`):
@@ -39,7 +40,10 @@ N=5 TARGET=http://localhost bash run_ab.sh
 #   report/summary.csv      — mean±std mỗi mode
 #   report/preds.jsonl      — dự đoán từng eid mỗi run (đầu vào bootstrap)
 #   report/ci.csv           — 95% CI bootstrap ghép cặp theo request, gồm "mode - rule_based"
-#   report/calibration.csv  — confidence của agent có khớp tỉ lệ đúng không (ECE; + reliability.png nếu có matplotlib)
+#   report/calibration.csv  — confidence (= xác suất là tấn công) có khớp tỉ lệ tấn công thật không
+#                             (ECE; + reliability.png nếu có matplotlib)
+#   report/logs/<mode>_run<N>.log — log container agent mỗi run; mode agent* in thêm dòng [CALLS]
+#                             (số lần gọi LLM: triage / bước điều tra / quyết định cuối / thử lại)
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
 # REPORT_TAG=<tên> → sao kết quả vào report/<tên>/ (lần chạy sau xóa các file ở report/)
 ```
@@ -110,13 +114,16 @@ python plot.py
 - `compare_quality.png` — Precision/Recall/F1/FPR/Accuracy theo mode (có error bar = std).
 - `compare_groups.png` — **nơi agent nên thắng**: `recall_evasion` ↑ (bắt evasion Suricata miss) và `fpr_fpbait` ↓ (không chặn nhầm request trông giống attack).
 - `compare_mttb.png` — agent thường **chậm hơn** (LLM ~vài giây) — tradeoff trung thực.
+- Nhịp replay: rule/WAF `DELAY` (0.5s), agent* `DELAY_LLM` (mặc định 6s). Triage từng event tốn ~4.4s LLM/request
+  trên T4; nhịp 4s (2026-10-27) không còn dư → MTTB đo hàng đợi và một run tụt >10 phút. Giữ tải ≲75%.
 
 ## Lưu ý
 - `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
 - Corpus hiện là **seed (~60)**. Trước khi chạy số liệu cuối trên EC2, scale mỗi nhóm lên từ cùng nguồn công khai (xem `attack_corpus/build_corpus.py`, mục tiêu ~150).
 - `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định;
   `rule_based`/`naive`/`agent_ids` chờ đủ các `eid` Suricata đã alert trong run này (`alerted_eids.py` →
-  `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 600s), hết giờ in số `eid` thiếu. Chạy tay
+  `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 2700s — chỉ là chốt an toàn: một run chậm phải
+  hiện ở độ trễ, không thành "bỏ sót"); hết giờ in số `eid` thiếu và ghi cột `undecided`. Chạy tay
   không có `--alerted` thì quay về "số row ổn định `--settle` giây".
 - Mỗi run tạo lại container agent (`--force-recreate`) → tập `decided` và offset đọc log bắt đầu mới;
   agent đọc cả `eve.json` lẫn nginx log từ cuối file lúc khởi động (không xử lý lại traffic run trước).

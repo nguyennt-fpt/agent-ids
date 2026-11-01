@@ -182,14 +182,18 @@ def _investigate_one(event: dict, prior: dict) -> dict:
         )),
     ]
 
-    for _ in range(INVESTIGATE_MAX_STEPS):
+    for step in range(1, INVESTIGATE_MAX_STEPS + 1):
         try:
+            t0 = time.monotonic()
             ai: AIMessage = _investigate_llm().invoke(messages)
         except Exception as e:
             print(f"[AGENT] investigate tool-call error eid={event.get('eid')}: {e}")
             return prior
         messages.append(ai)
         calls = getattr(ai, "tool_calls", None) or []
+        # one line per LLM call, so a run's call count per event can be read off its log
+        print(f"[AGENT] investigate step {step} eid={event.get('eid')} "
+              f"tools={[tc['name'] for tc in calls]} {time.monotonic() - t0:.1f}s")
         if not calls:
             break
         for tc in calls:
@@ -203,9 +207,11 @@ def _investigate_one(event: dict, prior: dict) -> dict:
                                         tool_call_id=tc["id"]))
 
     try:
+        t0 = time.monotonic()
         final = _final_decision_llm().invoke(messages + [HumanMessage(
             "Give your FINAL decision for this single event as structured output. "
             "Copy the eid exactly. block/warn for attacks, log for benign.")])
+        print(f"[AGENT] investigate final eid={event.get('eid')} {time.monotonic() - t0:.1f}s")
         d = final.model_dump(mode="json")
         d["eid"] = event.get("eid", prior.get("eid", ""))   # never lose the eid
         return d

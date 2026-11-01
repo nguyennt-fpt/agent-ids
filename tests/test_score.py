@@ -7,7 +7,7 @@ import time
 import pytest
 
 from alerted_eids import alerted_eids
-from score import mitre_id, wait_for_decisions
+from score import mitre_id, p95, wait_for_decisions
 
 
 def _db(tmp_path, rows):
@@ -28,14 +28,14 @@ def test_agent_returns_once_every_answered_request_has_a_decision(tmp_path):
     # e3 never reached nginx (replay error) -> not expected
     db = _db(tmp_path, [("agent", "e1"), ("agent", "e2")])
     t0 = time.time()
-    wait_for_decisions(db, "agent", SENT, settle_s=15, timeout_s=30)
+    assert wait_for_decisions(db, "agent", SENT, settle_s=15, timeout_s=30) == 0
     assert time.time() - t0 < 1
 
 
 def test_agent_waits_past_settle_window_then_times_out_and_reports(tmp_path, capsys):
     db = _db(tmp_path, [("agent", "e1"), ("rule_based", "e2")])   # other mode doesn't count
     t0 = time.time()
-    wait_for_decisions(db, "agent", SENT, settle_s=0, timeout_s=3)
+    assert wait_for_decisions(db, "agent", SENT, settle_s=0, timeout_s=3) == 1   # -> `undecided`
     assert time.time() - t0 >= 3          # did not stop on "stable count"
     assert "1/2 eids have no agent decision" in capsys.readouterr().out
 
@@ -85,3 +85,10 @@ def test_rule_mode_returns_when_row_count_is_stable(tmp_path):
 ])
 def test_mitre_id(raw, want):
     assert mitre_id(raw) == want
+
+
+def test_p95_is_nearest_rank():
+    assert p95([]) == 0.0
+    assert p95([5.0]) == 5.0
+    assert p95([float(i) for i in range(1, 21)]) == 19.0      # 20 values: rank ceil(19) = 19
+    assert p95([1.0, 2.0, 100.0]) == 100.0                    # a slow tail is not averaged away

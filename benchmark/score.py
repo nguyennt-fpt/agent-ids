@@ -11,6 +11,7 @@ Appends one row to a summary CSV. Usage:
 import argparse
 import csv
 import json
+import math
 import os
 import re
 import sqlite3
@@ -22,6 +23,11 @@ REPORT_DIR = os.path.join(HERE, "report")
 DEFAULT_DB = os.path.join(HERE, "..", "agent", "data", "events.db")
 
 MALICIOUS_ACTIONS = ("block", "warn")
+# A safety cap, not the normal exit: scoring waits until every request has a
+# decision, so a slow run shows up as latency (MTTB / p95), not as missed
+# attacks. With 600s, one agent run fell >10 min behind and 52 undecided
+# requests were scored benign (2026-10-27).
+DECISION_TIMEOUT_S = 2700
 
 _MITRE_ID = re.compile(r"T\d{4}(?:\.\d{3})?", re.IGNORECASE)
 
@@ -85,6 +91,14 @@ def fetch_decisions(db: str, mode: str) -> dict:
     return out
 
 
+def p95(values: list[float]) -> float:
+    """95th percentile, nearest rank (0.0 for no values)."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    return s[max(0, math.ceil(0.95 * len(s)) - 1)]
+
+
 def _decided_eids(db: str, mode: str) -> set[str]:
     conn = sqlite3.connect(db)
     rows = conn.execute("SELECT DISTINCT eid FROM events WHERE mode=?", (mode,)).fetchall()
@@ -93,8 +107,9 @@ def _decided_eids(db: str, mode: str) -> set[str]:
 
 
 def wait_for_decisions(db: str, mode: str, sent: dict, settle_s: float,
-                       timeout_s: float, alerted: set | None = None) -> None:
-    """Block until this mode's decisions are complete, then return.
+                       timeout_s: float, alerted: set | None = None) -> int:
+    """Block until this mode's decisions are complete; return how many expected
+    requests are still undecided (0 unless the timeout hit).
 
     agent / waf: they record a decision for every request they see (the WAF
     audits every transaction), so wait until every request that got an HTTP
@@ -113,11 +128,11 @@ def wait_for_decisions(db: str, mode: str, sent: dict, settle_s: float,
         while True:
             missing = expected - _decided_eids(db, mode)
             if not missing:
-                return
+                return 0
             if time.time() >= deadline:
                 print(f"[SCORE] WARNING: timeout, {len(missing)}/{len(expected)} eids "
                       f"have no {mode} decision (scored as benign)")
-                return
+                return len(missing)
             time.sleep(2)
 
     last, stable_since = -1, time.time()
@@ -128,8 +143,9 @@ def wait_for_decisions(db: str, mode: str, sent: dict, settle_s: float,
         if n != last:
             last, stable_since = n, time.time()
         elif time.time() - stable_since >= settle_s:
-            return
+            return 0
         time.sleep(2)
+    return 0
 
 
 def main() -> None:
@@ -141,7 +157,7 @@ def main() -> None:
     ap.add_argument("--out", default=os.path.join(REPORT_DIR, "summary_raw.csv"))
     ap.add_argument("--settle", type=float, default=15,
                     help="DB-stable seconds (non-agent modes without --alerted)")
-    ap.add_argument("--timeout", type=float, default=600)
+    ap.add_argument("--timeout", type=float, default=DECISION_TIMEOUT_S)
     ap.add_argument("--alerted", help="JSON list of alerted eids (alerted_eids.py)")
     ap.add_argument("--preds", default=os.path.join(REPORT_DIR, "preds.jsonl"),
                     help="append per-eid predictions here (input of bootstrap_ci.py)")
@@ -152,7 +168,7 @@ def main() -> None:
     if args.alerted:
         with open(args.alerted, encoding="utf-8") as f:
             alerted = set(json.load(f))
-    wait_for_decisions(args.db, args.mode, gt, args.settle, args.timeout, alerted)
+    undecided = wait_for_decisions(args.db, args.mode, gt, args.settle, args.timeout, alerted)
     dec = fetch_decisions(args.db, args.mode)
 
     tp = fp = fn = tn = 0
@@ -201,6 +217,7 @@ def main() -> None:
     fpr = fp / (fp + tn) if (fp + tn) else 0.0
     accuracy = (tp + tn) / (tp + fp + fn + tn) if gt else 0.0
     mttb = sum(mttbs) / len(mttbs) if mttbs else 0.0
+    ttb_p95 = p95(mttbs)
     recall_evasion = evasion_hit / evasion_total if evasion_total else 0.0
     fpr_fpbait = fpbait_fp / fpbait_total if fpbait_total else 0.0
     mitre_acc = mitre_hit / mitre_total if mitre_total else 0.0
@@ -211,8 +228,10 @@ def main() -> None:
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "precision": round(precision, 4), "recall": round(recall, 4),
         "f1": round(f1, 4), "fpr": round(fpr, 4), "accuracy": round(accuracy, 4),
-        "mttb_s": round(mttb, 3), "recall_evasion": round(recall_evasion, 4),
+        "mttb_s": round(mttb, 3), "ttb_p95_s": round(ttb_p95, 3),
+        "recall_evasion": round(recall_evasion, 4),
         "fpr_fpbait": round(fpr_fpbait, 4), "mitre_acc": round(mitre_acc, 4),
+        "undecided": undecided,
     }
 
     os.makedirs(REPORT_DIR, exist_ok=True)
@@ -228,8 +247,9 @@ def main() -> None:
 
     print(f"[SCORE] {args.mode} run{args.run}: "
           f"P={precision:.2f} R={recall:.2f} F1={f1:.2f} FPR={fpr:.2f} "
-          f"MTTB={mttb:.1f}s | evasion_recall={recall_evasion:.2f} "
-          f"fp_bait_FPR={fpr_fpbait:.2f} MITRE_acc={mitre_acc:.2f}")
+          f"MTTB={mttb:.1f}s p95={ttb_p95:.1f}s | evasion_recall={recall_evasion:.2f} "
+          f"fp_bait_FPR={fpr_fpbait:.2f} MITRE_acc={mitre_acc:.2f}"
+          + (f" | UNDECIDED={undecided}" if undecided else ""))
 
 
 if __name__ == "__main__":

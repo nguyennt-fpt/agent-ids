@@ -18,7 +18,7 @@ SUMMARY = os.path.join(REPORT_DIR, "summary.csv")
 
 MODES = ["rule_based", "naive", "waf", "agent", "agent_ids"]   # waf = CRS baseline; agent_ids = ablation
 METRICS = ["precision", "recall", "f1", "fpr", "accuracy",
-           "mttb_s", "recall_evasion", "fpr_fpbait", "mitre_acc"]
+           "mttb_s", "ttb_p95_s", "recall_evasion", "fpr_fpbait", "mitre_acc", "undecided"]
 
 
 def load_raw() -> dict:
@@ -32,7 +32,8 @@ def load_raw() -> dict:
 
 
 def mean_std(rows: list[dict], key: str) -> tuple[float, float]:
-    vals = [float(r[key]) for r in rows] if rows else []
+    # rows from before a metric existed (e.g. ttb_p95_s, 2026-11) just lack it
+    vals = [float(r[key]) for r in rows if r.get(key) not in (None, "")]
     if not vals:
         return 0.0, 0.0
     return st.mean(vals), (st.stdev(vals) if len(vals) > 1 else 0.0)
