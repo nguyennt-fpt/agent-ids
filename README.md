@@ -8,6 +8,99 @@ Attacker → Nginx → WAF (OWASP CRS, chỉ ghi log) → DVWA · Suricata (dete
 
 ---
 
+## Agent hoạt động thế nào
+
+Agent đọc **hai nguồn**, ghép theo `eid` (id gắn vào mỗi request): alert của Suricata (`eve.json`) và web log của
+Nginx — nên nó thấy cả những request IDS không báo. Mỗi event đi qua một LangGraph `StateGraph`:
+
+```
+event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
+                 └──────────── còn lại ──────────────────┴─▶ risk_gate ─▶ act
+```
+
+- **triage** — Qwen2.5-14B (Ollama, GPU) xét từng event một (`TRIAGE_BATCH=1`) và trả về `Decision` theo schema
+  Pydantic ([agent/schemas.py](agent/schemas.py)): `action` (block / warn / log), loại tấn công, `confidence` = xác
+  suất là tấn công, kỹ thuật MITRE ATT&CK, mức độ, ghi chú cho analyst, lý do.
+- **investigate** — với ca mơ hồ: vòng ReAct tối đa 3 bước, chỉ gọi tool chỉ-đọc
+  ([agent/tools/agent_tools.py](agent/tools/agent_tools.py)).
+- **risk_gate** — `block` có confidence < 0.90 phải chờ người duyệt (`interrupt()`; duyệt trên dashboard khi
+  `AUTO_APPROVE=false`).
+- **act** — ghi quyết định, chặn IP bằng iptables. Chỉ [agent/actions.py](agent/actions.py) làm việc này, tool thì không.
+- Nội dung request là dữ liệu của kẻ tấn công: được bọc trong `<<UNTRUSTED_DATA>>` và prompt cấm làm theo chỉ dẫn bên
+  trong (chống prompt injection).
+- Tùy chọn `MEMORY_ENABLED`: truy hồi 3 ca cũ giống nhất (embedding `nomic-embed-text`) làm ví dụ cho model.
+
+---
+
+## Kết quả thí nghiệm (2026-11-01)
+
+Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn ở đâu, đánh đổi gì? Thiết kế:
+[docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md); cách chạy lại: [benchmark/README.md](benchmark/README.md).
+
+**Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) vào DVWA mức low, payload lấy từ nguồn công khai, chia
+5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
+từ khóa giống tấn công). Mỗi mode chạy 5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là
+bootstrap ghép cặp theo request (B=2000).
+
+| mode | cách quyết định | Precision | Recall | F1 | FPR | MTTB |
+|---|---|---|---|---|---|---|
+| `rule_based` | Suricata (ET Open + rule riêng), chặn khi severity ≤ 2 | 1.00 | 0.32 | 0.48 | 0.00 | 2.1 s |
+| `waf` | OWASP CRS trên ModSecurity | 0.96 | 0.71 | 0.82 | 0.03 | 2.6 s |
+| `agent_ids` | LLM, chỉ đọc alert Suricata (ablation) | 1.00 | 0.30 | 0.46 | 0.00 | 8.1 s |
+| **`agent`** | LLM, đọc alert + web log | 0.85 | 0.96 | **0.90** [0.85, 0.94] | 0.18 [0.10, 0.27] | 14.7 s |
+
+`naive` (chặn mọi alert) cho kết quả y hệt `rule_based` trên tập này.
+
+| chênh lệch | Recall | FPR | F1 |
+|---|---|---|---|
+| agent − rule_based | +0.64 [+0.53, +0.75] | +0.18 [+0.10, +0.27] | **+0.42 [+0.30, +0.55]** |
+| agent − waf | +0.25 [+0.16, +0.35] | +0.15 [+0.06, +0.25] | **+0.08 [+0.005, +0.17]** |
+
+| nhóm (bắt được / tổng) | n | rule_based | waf | agent |
+|---|---|---|---|---|
+| tấn công rõ | 26 | 13 | 23 | 26 |
+| evasion | 26 | 7 | 23 | 26 |
+| recon | 24 | 4 | 8 | 21 |
+| lành thường (báo nhầm) | 42 | 0 | 0 | 9 |
+| fp_bait (báo nhầm) | 29 | 0 | 2 | 4 |
+
+Đọc kết quả:
+- **Agent bắt gần hết tấn công** (recall 0.96), kể cả evasion và recon, nhưng **báo nhầm nhiều hơn**: 13/71 request
+  lành, so với 2 của WAF và 0 của IDS. Giả thuyết ban đầu "agent giảm báo nhầm" không đúng: trên tập này IDS vốn không
+  báo nhầm.
+- So với WAF, agent hơn F1 một chút (khoảng tin cậy vừa không chứa 0). Phần hơn nằm ở recon (21 so với 8): loại tấn
+  công trải trên nhiều request, CRS không có rule cho nó.
+- **Lợi thế đến từ nguồn dữ liệu, không từ việc LLM xét lại alert:** `agent_ids` (cùng LLM, chỉ đọc alert) ≈
+  `rule_based`. Vòng investigate không được gọi lần nào trong lần đo này.
+- 11/13 báo nhầm là `warn` (cảnh báo cho analyst), 2 là `block`; ~45/47 lệnh block là đúng.
+- `confidence` khớp thực tế (ECE 0.041). Kỹ thuật MITRE đúng 82% trên các tấn công bắt được; phần lớn lỗi là dò thư
+  mục bị gán T1083 thay vì T1595.
+- 5 lần chạy cho kết quả y hệt nhau, nên độ bất định nằm ở mẫu request (khoảng tin cậy), không ở các lần chạy.
+
+**Thử nghiệm phụ** (2026-10-27, bản prompt trước đó — chỉ khác ở định nghĩa `confidence`):
+- *Prompt injection* (12 kỹ thuật × 2 lần): tỉ lệ vượt qua 12% khi không phòng thủ → 0% khi có quy tắc trong prompt
+  (có hoặc không bọc dữ liệu); mẫu nhỏ nên khoảng tin cậy rộng.
+- *Experience memory* (3 epoch): bớt ròng 3 báo nhầm so với khi tắt (14 so với 17), không có đường học rõ.
+- *ET Open nguyên bản* (không tinh chỉnh rule): kết luận không đổi.
+
+---
+
+## Giới hạn
+
+- **Báo nhầm trên trang có lỗ hổng với input bình thường** (`fi/?page=file1.php`, đăng nhập bằng user mặc định của
+  DVWA) và với từ khóa (`union`). Bản sửa prompt chỉnh trên tập dev không áp được sang tập test.
+- **Lý do không luôn bám bằng chứng:** 3 lần báo nhầm ghi "IDS severity 1/2" trong khi không có alert nào — cụm này
+  chép từ ví dụ trong prompt; vài lý do ghi "encoded" cho tên trang thường. Ghi chú của agent cần được kiểm lại.
+- **Chậm và tốn GPU:** ~4 s LLM cho mỗi request trên T4 (~15 request/phút); MTTB 14.7 s so với 2–3 s của IDS/WAF.
+  Agent xét mọi request nên không theo kịp traffic thật nếu không lọc bớt trước.
+- **Dễ nghẽn vì alert rác:** alert không gắn được với request nào bị triage từng cái một. Một đợt apt của chính máy chủ
+  (211 alert) từng làm trễ phát hiện hơn 10 phút; trong lab đã tắt rule đó, nhưng chưa gộp alert trùng.
+- **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA mức low), ~52% là tấn công. Với traffic thật, tấn công hiếm hơn
+  nhiều nên precision sẽ thấp hơn. Tập test đã được dùng hai lần (prompt cũ rồi bản thêm định nghĩa `confidence`).
+- Experience memory có lỗi thiết kế: `record_feedback` ghi đè bài học khi agent làm đúng một lần.
+
+---
+
 ## Yêu cầu hệ thống
 
 | Thành phần | Yêu cầu |
