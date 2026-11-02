@@ -243,7 +243,7 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 #
 # Nguồn: v1 payloads gốc (từ build_corpus.py trước refactor, đã bị loại ra khi
 #         chuyển sang data-file) + kỹ thuật bổ sung từ cùng nguồn công khai.
-# Build script force split="test" cho toàn bộ group này.
+# Build script đặt split="held_out" cho toàn bộ group này (ngoài dev và test, xếp sau cùng).
 # =============================================================================
 
 ## held_out :: sqli   /vulnerabilities/sqli/   param: id

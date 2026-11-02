@@ -18,7 +18,8 @@ DELAY="${DELAY:-0.5}"
 DELAY_LLM="${DELAY_LLM:-6}"
 # agent_ids = IDS-only ablation of the agent; waf = OWASP CRS baseline; e.g. MODES=agent
 read -r -a MODES <<< "${MODES:-rule_based naive waf agent agent_ids}"
-# corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers
+# corpus v2: SPLIT=dev while tuning, SPLIT=test only for the final numbers;
+# SPLIT=held_out (attacks never replayed during development) once, at the end
 SPLIT_ARGS=()
 [ -n "${SPLIT:-}" ] && SPLIT_ARGS=(--split "$SPLIT")
 RAW="$HERE/report/summary_raw.csv"
