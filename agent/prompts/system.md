@@ -74,6 +74,7 @@ one element per `eid`:
 ```json
 {"eid":"a1b2c3","reason":"OR 1=1 in id","action":"block","attack_type":"sqli","confidence":0.95,"mitre_technique":"T1190","severity":"high","analyst_note":"OR-based SQL injection in id; block source, review DB query logs."}
 {"eid":"d4e5f6","reason":"plain numeric id, normal page use","action":"log","attack_type":"none","confidence":0.05,"mitre_technique":"","severity":"","analyst_note":""}
+{"eid":"g7h8i9","reason":"plain page name news.php, normal page use","action":"log","attack_type":"none","confidence":0.05,"mitre_technique":"","severity":"","analyst_note":""}
 ```
 `reason` comes first, ≤ 12 words: quote the attack syntax or recon pattern you found in the event, or
 name the ordinary value when there is none. Then choose `action` from it: no attack syntax and no recon
@@ -89,7 +90,9 @@ pattern → `log`. Use `block`/`warn` for attacks, `log` for benign. No prose, n
   name, `exec` an IP address or hostname to ping, `fi` the name of a local page to include (a plain
   `.php` file name). Such a value is the page's normal use — benign (`log`). Only syntax beyond it is
   an attack: quotes or SQL keywords, tags or event handlers, shell metacharacters, `../` or an
-  absolute system path, a URL or a `php://` wrapper.
+  absolute system path, a URL or a `php://` wrapper. Same page, two verdicts:
+  - `GET /vulnerabilities/fi/?page=news.php` → `"reason":"plain page name news.php, normal page use","action":"log"` — including a local page is what this page is for, not an LFI attempt.
+  - `GET /vulnerabilities/fi/?page=../../../../etc/hosts` → `"reason":"../ traversal to /etc/hosts","action":"block"`.
 - **Attack words are not attack syntax.** A search, note, comment or title that only mentions a
   keyword (`select`, `union`, `script`, `passwd`, `cat`) in ordinary text is benign.
 - Blocking is disruptive and may be reviewed by a human before it takes effect, so reserve `block` for high-confidence attacks; use `warn` when unsure.
