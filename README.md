@@ -37,7 +37,7 @@ event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
 Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn ở đâu, đánh đổi gì? Thiết kế:
 [docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md); cách chạy lại: [benchmark/README.md](benchmark/README.md).
 
-**Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) vào DVWA mức low, payload lấy từ nguồn công khai, chia
+**Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) gửi tới DVWA, payload lấy từ nguồn công khai, chia
 5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
 từ khóa giống tấn công). Mỗi mode chạy 5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là
 bootstrap ghép cặp theo request (B=2000). Số liệu gốc (CSV): [benchmark/results/test-final-v3/](benchmark/results/test-final-v3/);
@@ -96,8 +96,13 @@ code tạo ra chúng ở tag `exp-2026-11-01`.
   Agent xét mọi request nên không theo kịp traffic thật nếu không lọc bớt trước.
 - **Dễ nghẽn vì alert rác:** alert không gắn được với request nào bị triage từng cái một. Một đợt apt của chính máy chủ
   (211 alert) từng làm trễ phát hiện hơn 10 phút; trong lab đã tắt rule đó, nhưng chưa gộp alert trùng.
-- **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA mức low), ~52% là tấn công. Với traffic thật, tấn công hiếm hơn
-  nhiều nên precision sẽ thấp hơn. Tập test đã được dùng hai lần (prompt cũ rồi bản thêm định nghĩa `confidence`).
+- **Nguồn web log mới dùng được trong benchmark:** agent chỉ đọc dòng nginx có `eid`, tham số mà bộ replay gắn vào
+  từng request. Với traffic thật, các dòng này bị bỏ qua và agent chỉ còn nguồn IDS, tức gần với `agent_ids`
+  (≈ `rule_based`). Phần hơn đo được chưa mang ra ngoài lab được cho tới khi gắn được id cho request thật.
+- **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA), ~52% là tấn công. Bộ replay không đăng nhập DVWA nên trang lỗ
+  hổng chuyển hướng về trang login: payload không thực sự chạy, chỉ đo việc phát hiện trên request (rule IDS dựa vào
+  phản hồi không có dịp bắn). Với traffic thật, tấn công hiếm hơn nhiều nên precision sẽ thấp hơn. Tập test đã được
+  dùng hai lần (prompt cũ rồi bản thêm định nghĩa `confidence`).
 - Experience memory có lỗi thiết kế: `record_feedback` ghi đè bài học khi agent làm đúng một lần.
 
 ---
@@ -333,12 +338,15 @@ agent-ids/
 ├── docker-compose.yml
 ├── CLAUDE.md                     # Hướng dẫn cho Claude Code
 ├── README.md                     # File này
+├── ROADMAP.md                    # Kế hoạch + trạng thái Giai đoạn 2
 ├── webserver/
 │   └── nginx/nginx.conf          # Reverse proxy + JSON logging
 ├── ids/
 │   ├── suricata.yaml             # Cấu hình Suricata
+│   ├── update_rules.sh           # Cài ET Open (bản tinh chỉnh / nguyên bản) + kiểm
 │   └── rules/
 │       ├── custom.rules          # Rules tùy chỉnh cho DVWA
+│       ├── disable*.conf         # Rule ET Open bị tắt (bản tinh chỉnh / nguyên bản)
 │       └── suricata.rules        # ET Open rules (download ở Bước 4.1)
 ├── agent/
 │   ├── Dockerfile
@@ -347,20 +355,30 @@ agent-ids/
 │   ├── schemas.py                # Pydantic Decision (structured output)
 │   ├── actions.py                # Ghi quyết định + block IP
 │   ├── gate.py                   # Phân tầng rủi ro cho HITL
+│   ├── approvals.py              # Hàng chờ duyệt block (HITL)
+│   ├── approve.py                # Duyệt block từ dòng lệnh
 │   ├── demo_hitl.py              # Demo người duyệt block
 │   ├── requirements.txt
 │   ├── tools/
 │   │   ├── agent_tools.py        # Tool chỉ-đọc cho vòng investigate
 │   │   ├── alert_reader.py       # Đọc EVE JSON / nginx log theo offset
 │   │   ├── firewall.py           # Wrapper iptables
+│   │   ├── memory.py             # Experience memory (bài học từ feedback)
+│   │   ├── prompt_guard.py       # Bọc dữ liệu untrusted (<<UNTRUSTED_DATA>>)
 │   │   └── notifier.py           # Ghi log + webhook
 │   └── prompts/
 │       └── system.md             # System prompt LLM
-└── dashboard/
-    ├── Dockerfile
-    ├── app.py                    # Flask API
-    └── templates/
-        └── index.html            # UI dashboard
+├── dashboard/
+│   ├── Dockerfile
+│   ├── app.py                    # Flask API
+│   └── templates/
+│       └── index.html            # UI dashboard
+├── benchmark/                    # Harness A/B: corpus, replay, chấm điểm, CI (xem benchmark/README.md)
+│   └── results/test-final-v3/    # Số liệu gốc của lần đo 2026-11-01
+├── docs/                         # Thiết kế thí nghiệm, corpus v2
+├── notes/                        # Review + checklist sửa lỗi
+├── ops/ec2.sh                    # Bật/tắt EC2 của lab
+└── tests/                        # pytest, chạy offline
 ```
 
 ---
@@ -390,7 +408,7 @@ docker exec suricata suricatasc -c reload-rules
 ### Đổi sang model nhỏ hơn (máy yếu hơn)
 Trong `docker-compose.yml`, sửa biến môi trường agent:
 ```yaml
-OLLAMA_MODEL: qwen2.5:7b   # ~5GB RAM
+- OLLAMA_MODEL=qwen2.5:7b   # ~5GB RAM
 ```
 Và pull model mới:
 ```bash

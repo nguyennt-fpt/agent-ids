@@ -1,6 +1,6 @@
 # Benchmark — Trụ 1: A/B Evaluation Harness
 
-Đo và so sánh **3 cấu hình phản ứng** trên cùng một corpus tấn công có nhãn, để chứng minh bằng số liệu AI agent cải thiện so với IDS rule-based thuần.
+Đo và so sánh **5 cấu hình phản ứng** trên cùng một corpus tấn công có nhãn, để chứng minh bằng số liệu AI agent cải thiện so với IDS rule-based thuần.
 
 | Mode | Logic quyết định | Vai trò |
 |---|---|---|
@@ -32,7 +32,7 @@ Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIM
 pip install -r requirements.txt
 python attack_corpus/build_corpus.py     # sinh corpus.jsonl
 
-# 1. Chạy toàn bộ A/B (3 mode × N lần) + tổng hợp + biểu đồ
+# 1. Chạy toàn bộ A/B (5 mode × N lần) + tổng hợp + biểu đồ
 N=5 TARGET=http://localhost bash run_ab.sh
 
 # Kết quả:
@@ -113,13 +113,15 @@ python plot.py
 ## Đọc kết quả
 - `compare_quality.png` — Precision/Recall/F1/FPR/Accuracy theo mode (có error bar = std).
 - `compare_groups.png` — **nơi agent nên thắng**: `recall_evasion` ↑ (bắt evasion Suricata miss) và `fpr_fpbait` ↓ (không chặn nhầm request trông giống attack).
+  Kết quả 2026-11-01: thắng ở evasion (recall 1.00, WAF 0.88, IDS 0.27), không thắng ở fp_bait (FPR 0.14, WAF 0.07, IDS 0).
 - `compare_mttb.png` — agent thường **chậm hơn** (LLM ~vài giây) — tradeoff trung thực.
 - Nhịp replay: rule/WAF `DELAY` (0.5s), agent* `DELAY_LLM` (mặc định 6s). Triage từng event tốn ~4.4s LLM/request
   trên T4; nhịp 4s (2026-10-27) không còn dư → MTTB đo hàng đợi và một run tụt >10 phút. Giữ tải ≲75%.
 
 ## Lưu ý
 - `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
-- Corpus hiện là **seed (~60)**. Trước khi chạy số liệu cuối trên EC2, scale mỗi nhóm lên từ cùng nguồn công khai (xem `attack_corpus/build_corpus.py`, mục tiêu ~150).
+- Corpus: **199 mẫu** (98 tấn công / 101 lành; dev 52, test 147) từ nguồn công khai — `attack_corpus/build_corpus.py`.
+  Tập test đã dùng cho hai lần đo cuối (2026-10-27, 2026-11-01) → đổi prompt/logic sau này cần tập held-out mới.
 - `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định;
   `rule_based`/`naive`/`agent_ids` chờ đủ các `eid` Suricata đã alert trong run này (`alerted_eids.py` →
   `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 2700s — chỉ là chốt an toàn: một run chậm phải
