@@ -40,7 +40,8 @@ Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn 
 **Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) vào DVWA mức low, payload lấy từ nguồn công khai, chia
 5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
 từ khóa giống tấn công). Mỗi mode chạy 5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là
-bootstrap ghép cặp theo request (B=2000).
+bootstrap ghép cặp theo request (B=2000). Số liệu gốc (CSV): [benchmark/results/test-final-v3/](benchmark/results/test-final-v3/);
+code tạo ra chúng ở tag `exp-2026-11-01`.
 
 | mode | cách quyết định | Precision | Recall | F1 | FPR | MTTB |
 |---|---|---|---|---|---|---|
