@@ -28,7 +28,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from actions import SEV_MAP, guess_attack, record_decision, rule_flags
-from gate import classify_risk, needs_human
+from gate import check_grounding, classify_risk, needs_human
 from schemas import Decision, DecisionList, salvage_decisions
 from tools.agent_tools import READ_TOOLS
 from tools.memory import add_experience, format_for_prompt, retrieve_similar
@@ -240,18 +240,29 @@ def risk_gate_node(state: AgentState) -> dict:
     """Human-in-the-loop gate (bài 06). Block = high tier; a low-confidence block
     needs a human. Headless (AUTO_APPROVE) auto-approves and audits; otherwise
     interrupt() pauses the graph until a human approves/denies (see demo_hitl.py).
-    A denied block is downgraded to warn, never silently dropped."""
+    A denied block is downgraded to warn, never silently dropped. A block whose
+    reason cites evidence the event lacks goes to the human whatever its
+    confidence (headless only logs it)."""
     decisions = state["decisions"]
     by_eid = {e["eid"]: e for e in state["events"] if e.get("eid")}
-    pending = [d for d in decisions
-               if needs_human(d.get("action", "log"), d.get("confidence", 0.0))]
+    unverified = {}
+    for d in decisions:
+        ev = by_eid.get(str(d.get("eid", "")))
+        unverified[str(d.get("eid", ""))] = check_grounding(ev, d) if ev else ""
+
+    def escalate(d: dict) -> bool:
+        return needs_human(d.get("action", "log"), d.get("confidence", 0.0),
+                           grounded=not unverified.get(str(d.get("eid", ""))))
+
+    pending = [d for d in decisions if escalate(d)]
     if not pending:
         return {}
 
     if AUTO_APPROVE:
         for d in pending:
-            print(f"[GATE] high-risk block eid={d.get('eid')} "
-                  f"conf={d.get('confidence')} -> auto-approved (headless)")
+            why = unverified.get(str(d.get("eid", "")))
+            print(f"[GATE] high-risk block eid={d.get('eid')} conf={d.get('confidence')}"
+                  f"{f' unverified ({why})' if why else ''} -> auto-approved (headless)")
         return {}
 
     # pause for a human (needs a checkpointer at compile time — see build_graph)
@@ -262,7 +273,9 @@ def risk_gate_node(state: AgentState) -> dict:
             "src_ip": d.get("src_ip") or by_eid.get(str(d.get("eid", "")), {}).get("src_ip", ""),
             "attack_type": d.get("attack_type"),
             "confidence": d.get("confidence"),
-            "analyst_note": d.get("analyst_note", ""),
+            "analyst_note": (f"[unverified: {unverified[str(d.get('eid', ''))]}] "
+                             if unverified.get(str(d.get("eid", ""))) else "")
+                            + d.get("analyst_note", ""),
         } for d in pending],
     })
 
@@ -271,7 +284,7 @@ def risk_gate_node(state: AgentState) -> dict:
     answers = review if isinstance(review, dict) else {}
     for d in decisions:
         eid = str(d.get("eid", ""))
-        if not needs_human(d.get("action", "log"), d.get("confidence", 0.0)):
+        if not escalate(d):
             continue
         answer = answers.get(eid)
         if answer == "approve":
@@ -308,7 +321,8 @@ def act_node(state: AgentState) -> dict:
                         reason=d.get("reason", ""), mode=MODE,
                         mitre=d.get("mitre_technique", ""),
                         severity=d.get("severity", ""),
-                        note=d.get("analyst_note", ""))
+                        note=d.get("analyst_note", ""),
+                        unverified=check_grounding(ev, d) if ev else None)
         if eid:
             returned.add(eid)
             if MEMORY_ENABLED:

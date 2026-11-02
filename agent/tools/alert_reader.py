@@ -36,6 +36,15 @@ def auto_eid(alert: dict) -> str:
     return "auto-" + hashlib.sha1(key.encode()).hexdigest()[:12]
 
 
+def web_eid(rec: dict) -> str:
+    """Id for a web-log line without a benchmark eid (real traffic): nginx's
+    per-request $request_id, else a hash of the line's identity."""
+    if rec.get("request_id"):
+        return f"web-{rec['request_id']}"
+    key = "|".join(str(rec.get(k, "")) for k in ("time", "remote_addr", "remote_port", "uri"))
+    return "web-" + hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
 def normalize_alert(alert: dict) -> dict:
     """Flatten an EVE alert dict into the structured fields the agent needs."""
     a = alert.get("alert", {})
@@ -48,7 +57,9 @@ def normalize_alert(alert: dict) -> dict:
     return {
         "timestamp": alert.get("timestamp", ""),
         "src_ip": alert.get("dest_ip" if to_client else "src_ip", ""),
+        "src_port": alert.get("dest_port" if to_client else "src_port", ""),
         "dest_ip": alert.get("src_ip" if to_client else "dest_ip", ""),
+        "sid": a.get("signature_id", ""),
         "signature": a.get("signature", ""),
         "severity": a.get("severity", 3),
         "category": a.get("category", ""),

@@ -119,6 +119,7 @@ def run(epochs: int, memory: str, target: str, delay: float,
     for epoch in range(1, epochs + 1):
         print(f"\n===== memory={memory} epoch={epoch}/{epochs} =====")
         env = {**os.environ, "RESPONSE_MODE": "agent", "BLOCK_ENABLED": "false",
+               "WEB_UNTAGGED": "false",   # as run_ab.sh: skip replay's eid-less redirect follow-ups
                "MEMORY_ENABLED": "true" if mem_on else "false", "EPOCH": str(epoch)}
         sh(["docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "agent"],
            env=env)

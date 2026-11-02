@@ -104,7 +104,7 @@ python learning_curve.py --epochs 5 --memory off
 
 ### Chạy tay từng bước (debug)
 ```bash
-RESPONSE_MODE=agent BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
+RESPONSE_MODE=agent BLOCK_ENABLED=false WEB_UNTAGGED=false docker compose up -d --force-recreate --no-deps agent
 python replay.py --target http://localhost --delay 0.5
 python score.py --mode agent --run 1
 python plot.py

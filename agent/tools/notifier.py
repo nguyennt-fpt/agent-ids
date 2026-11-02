@@ -11,8 +11,9 @@ DB_PATH = os.getenv("DASHBOARD_DB", "/app/data/events.db")
 _db_ready = False
 
 
-# columns added after the initial release (safe incremental migration)
-_EXTRA_COLUMNS = ("mode", "eid", "mitre", "severity", "note", "confidence")
+# columns added after the initial release (safe incremental migration).
+# grounded: "1"/"0" = the model's cited evidence was / was not in the event, NULL = not checked
+_EXTRA_COLUMNS = ("mode", "eid", "mitre", "severity", "note", "confidence", "grounded")
 
 
 def _ensure_db() -> None:
@@ -34,7 +35,8 @@ def _ensure_db() -> None:
             mitre     TEXT,
             severity  TEXT,
             note      TEXT,
-            confidence TEXT
+            confidence TEXT,
+            grounded  TEXT
         )
     """)
     # migrate older DBs that predate the extra columns
@@ -49,7 +51,8 @@ def _ensure_db() -> None:
 
 def send_alert(message: str, src_ip: str = "", attack_type: str = "", action: str = "",
                eid: str = "", mode: str = "", mitre: str = "", severity: str = "",
-               note: str = "", confidence: float | None = None) -> dict:
+               note: str = "", confidence: float | None = None,
+               grounded: str | None = None) -> dict:
     """Log event to SQLite and optionally send to webhook."""
     _ensure_db()
     ts = datetime.utcnow().isoformat()
@@ -57,9 +60,9 @@ def send_alert(message: str, src_ip: str = "", attack_type: str = "", action: st
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "INSERT INTO events (ts, src_ip, attack, action, detail, mode, eid, "
-        "mitre, severity, note, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "mitre, severity, note, confidence, grounded) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (ts, src_ip, attack_type, action, message, mode, eid, mitre, severity, note,
-         confidence),
+         confidence, grounded),
     )
     conn.commit()
     conn.close()

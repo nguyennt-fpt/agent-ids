@@ -153,6 +153,7 @@ services:
       - MEMORY_ENABLED=${MEMORY_ENABLED:-false}
       - EPOCH=${EPOCH:-0}
       - TRIAGE_BATCH=${TRIAGE_BATCH:-1}   # events per triage call (see main.py; 15 = old batching)
+      - WEB_UNTAGGED=${WEB_UNTAGGED:-true}   # judge real (eid-less) requests too; run_ab.sh sets false
       - EMBED_MODEL=nomic-embed-text
       # headless (benchmark): auto-approve high-risk blocks. AUTO_APPROVE=false = real
       # HITL (G5): escalated blocks wait for an answer on the dashboard / approve.py

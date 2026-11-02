@@ -1,6 +1,7 @@
 """G2 — alerts without a benchmark eid (real traffic) still get a stable id;
 D4 — late IDS alerts for web-triaged requests are detected;
-G6 — stale agent-block rules from a previous run are cleaned up."""
+G6 — blocks live in an ipset with kernel-side timeouts; per-IP rules left by
+the older agent are cleaned up."""
 
 import main
 from tools import firewall
@@ -51,6 +52,7 @@ def test_cleanup_removes_only_this_agents_rules(monkeypatch):
     calls = []
     listing = "\n".join([
         "-N DOCKER-USER",
+        "-A DOCKER-USER -m set --match-set agent-block src -m comment --comment agent-block-set -j DROP",
         "-A DOCKER-USER -s 203.0.113.9/32 -m comment --comment \"agent-block-203.0.113.9\" -j DROP",  # as iptables prints it
         "-A DOCKER-USER -s 10.1.2.3/32 -j DROP",                       # someone else's rule
         "-A DOCKER-USER -s 203.0.113.9/32 -m comment --comment agent-block-203.0.113.9 -j DROP",
@@ -71,3 +73,55 @@ def test_cleanup_removes_only_this_agents_rules(monkeypatch):
 def test_cleanup_is_a_noop_when_iptables_fails(monkeypatch):
     monkeypatch.setattr(firewall, "_run", lambda cmd: (1, "iptables: No chain/target/match"))
     assert firewall.cleanup_stale_blocks() == 0
+
+
+class FakeKernel:
+    """ipset/iptables stand-in: tracks set members and whether the set's DROP rule exists."""
+
+    def __init__(self, rule=False, members=()):
+        self.rule, self.members, self.calls = rule, dict.fromkeys(members, 3600), []
+
+    def __call__(self, cmd):
+        self.calls.append(cmd)
+        tool, verb = cmd[0], cmd[1]
+        if tool == "iptables":
+            if verb == "-C":
+                return (0 if self.rule else 1), ""
+            self.rule = verb == "-I" or self.rule
+            return 0, ""
+        if verb == "test":
+            return (0 if cmd[3] in self.members else 1), ""
+        if verb == "add":
+            self.members[cmd[3]] = int(cmd[5])
+        elif verb == "del":
+            self.members.pop(cmd[3], None)
+        elif verb == "list":
+            return 0, "\n".join([f"create {firewall.SET} hash:ip family inet timeout 3600"]
+                                + [f"add {firewall.SET} {ip} timeout {t}" for ip, t in self.members.items()])
+        return 0, ""
+
+
+def test_block_adds_a_timed_set_entry_and_the_drop_rule_once(monkeypatch):
+    k = FakeKernel()
+    monkeypatch.setattr(firewall, "_run", k)
+    assert firewall.block_ip("203.0.113.9", 600)["status"] == "blocked"
+    assert firewall.block_ip("203.0.113.9")["status"] == "already_blocked"
+    assert firewall.block_ip("203.0.113.10")["status"] == "blocked"
+    assert k.members == {"203.0.113.9": 600, "203.0.113.10": 3600}
+    assert sum(c[:2] == ["iptables", "-I"] for c in k.calls) == 1   # one rule for every IP
+    assert ["ipset", "add", firewall.SET, "203.0.113.9", "timeout", "600", "-exist"] in k.calls
+
+
+def test_blocked_ips_are_read_back_from_the_kernel_set(monkeypatch):
+    monkeypatch.setattr(firewall, "_run", FakeKernel(rule=True, members=["198.51.100.1"]))
+    (entry,) = firewall.get_blocked_ips()
+    assert entry["ip"] == "198.51.100.1" and entry["remaining_s"] == 3600
+    assert firewall.unblock_ip("198.51.100.1")["status"] == "unblocked"
+    assert firewall.get_blocked_ips() == []
+
+
+def test_block_reports_an_error_when_ipset_fails(monkeypatch):
+    monkeypatch.setattr(firewall, "_run", lambda cmd: (1, "ipset: Kernel error"))
+    res = firewall.block_ip("203.0.113.9")
+    assert res["status"] == "error" and "Kernel" in res["detail"]
+    assert firewall.get_blocked_ips() == []

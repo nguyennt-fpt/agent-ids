@@ -25,6 +25,7 @@ import approvals
 from actions import SEV_MAP, guess_attack, record_decision, rule_flags
 from tools.alert_reader import (
     extract_eid, normalize_alert, prime_position, read_new_alerts, strip_eid, tail_new_lines,
+    web_eid,
 )
 from tools.firewall import cleanup_stale_blocks
 
@@ -44,6 +45,15 @@ WAF_LOG = os.getenv("WAF_LOG", "/var/log/waf/audit.json")   # ModSecurity JSON a
 TRIAGE_BATCH = int(os.getenv("TRIAGE_BATCH", "1"))
 # retries for a web-only event the model returned no decision for (then fail closed)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
+# Real traffic carries no benchmark eid. true: such web-log lines are judged too,
+# each under its own id (alert_reader.web_eid), joined with the request's IDS alert.
+# The benchmark sets false: its replay follows DVWA's redirects, and those eid-less
+# follow-up requests would double the LLM load without ever being scored.
+WEB_UNTAGGED = os.getenv("WEB_UNTAGGED", "true").lower() == "true"
+# real-traffic alerts with the same source + signature within this window are
+# triaged once (2026-10-27: one apt run's 211 alerts were triaged one by one and
+# held real detections back >10 min). A benchmark eid is always decided.
+ALERT_DEDUP_WINDOW_S = int(os.getenv("ALERT_DEDUP_WINDOW_S", "300"))
 # HITL outside the demo (G5): where paused graph runs are checkpointed
 CHECKPOINT_DB = os.getenv("HITL_CHECKPOINT_DB", "/app/data/checkpoints.db")
 
@@ -106,29 +116,43 @@ def handle_waf(decided: set) -> None:
 
 # ─── Agent engine (2 sources -> LangGraph) ─────────────────────────────────────
 
+# Real traffic: an alert and the nginx line of one request are joined on (client
+# port, method, uri) — not on the IP, which Suricata takes from a client-supplied
+# X-Forwarded-For — and share one id, so the request is decided once whichever
+# source is read first. Entries are kept _JOIN_TTL_S.
+_JOIN_TTL_S = 120.0
+_recent: dict[tuple, tuple[str, str, float]] = {}   # request key -> (id, nginx client ip, seen at)
+_dedup_seen: dict[tuple, tuple[str, float]] = {}    # (src_ip, sid) -> (first id, when)
+_clock = time.monotonic
+
+
+def _request_key(port, method: str, uri: str) -> tuple | None:
+    return (str(port), method or "", uri) if port and uri else None
+
+
 def collect_agent_events(alerts: list[dict], decided: set,
                          include_web: bool = True) -> list[dict]:
     """Source 1: Suricata alerts. Source 2 (unless include_web=False, the
     agent_ids ablation): nginx requests Suricata did NOT alert on. Returns the
     dedup'd todo list, skipping already-decided eids. url/payload go to the
-    model without the benchmark's eid parameter (strip_eid)."""
-    events: list[dict] = []
-    alert_eids: set[str] = set()
-    for a in alerts:
-        eid = a.get("eid", "")
-        if eid:
-            alert_eids.add(eid)
-        events.append({
-            "eid": eid, "src_ip": a.get("src_ip", ""), "source": "ids",
-            "signature": a.get("signature", ""), "severity": a.get("severity", ""),
-            "method": a.get("method", ""), "url": strip_eid(a.get("url", "")),
-            "user_agent": a.get("user_agent", ""), "payload": strip_eid(a.get("payload", "")),
-        })
+    model without the benchmark's eid parameter (strip_eid).
+
+    Real traffic (no benchmark eid): a joined alert takes its web-log line's id
+    and client IP (written back into the alert dict), and repeats of one source
+    + signature within ALERT_DEDUP_WINDOW_S are suppressed — added to `decided`,
+    so their web-log lines are skipped too."""
+    now = _clock()
+    for k in [k for k, v in _recent.items() if now - v[2] > _JOIN_TTL_S]:
+        del _recent[k]
+    for k in [k for k, v in _dedup_seen.items() if now - v[1] >= ALERT_DEDUP_WINDOW_S]:
+        del _dedup_seen[k]
 
     # isfile (not exists): the stock nginx image symlinks access.log -> /dev/stdout;
     # opening that char device blocks forever. isfile is False for it, so we skip
     # it safely and only read a real access-log file. Read by offset (primed at
     # boot) so each request is seen once and a prior run's lines are never replayed.
+    # Read before the alerts, so an alert can join its line in the same poll.
+    lines: list[tuple[str, str, dict]] = []
     if include_web and os.path.isfile(NGINX_LOG):
         for line in tail_new_lines(NGINX_LOG):
             line = line.strip()
@@ -140,15 +164,64 @@ def collect_agent_events(alerts: list[dict], decided: set,
                 continue
             uri = rec.get("uri", "") or rec.get("request_uri", "")
             eid = extract_eid(uri)
-            if not eid or eid in alert_eids:
+            if not eid:
+                if not WEB_UNTAGGED:
+                    continue
+                key = _request_key(rec.get("remote_port"), rec.get("method", ""), uri)
+                hit = _recent.get(key) if key else None
+                eid = hit[0] if hit else web_eid(rec)       # hit: its alert came a poll earlier
+                if key and not hit:
+                    _recent[key] = (eid, rec.get("remote_addr", ""), now)
+            lines.append((eid, uri, rec))
+
+    events: list[dict] = []
+    alert_eids: set[str] = set()
+    suppressed: dict[tuple, int] = {}
+    for a in alerts:
+        eid = a.get("eid", "")
+        if eid.startswith("auto-"):                         # real traffic
+            key = _request_key(a.get("src_port"), a.get("method", ""), a.get("url", ""))
+            hit = _recent.get(key) if key else None
+            if hit:
+                eid = a["eid"] = hit[0]
+                if hit[1] and hit[1] != a.get("src_ip"):
+                    print(f"[AGENT] eid={eid}: alert src_ip {a.get('src_ip')} != nginx client "
+                          f"{hit[1]} (X-Forwarded-For sent by the client?) -> using nginx's")
+                    a["src_ip"] = hit[1]
+            elif key:
+                _recent[key] = (eid, "", now)
+            dkey = (a.get("src_ip", ""), a.get("sid") or a.get("signature", ""))
+            first = _dedup_seen.get(dkey)
+            if first and first[0] != eid:
+                suppressed[dkey] = suppressed.get(dkey, 0) + 1
+                alert_eids.add(eid)
+                decided.add(eid)
                 continue
-            events.append({
-                "eid": eid, "src_ip": rec.get("remote_addr", ""), "source": "web",
-                "signature": "", "severity": "", "method": rec.get("method", ""),
-                "url": strip_eid(uri), "user_agent": rec.get("http_user_agent", ""),
-                # POST form body (nginx logs $request_body) — same 300-char cap as IDS payloads
-                "payload": (rec.get("request_body", "") or "")[:300],
-            })
+            if not first:
+                _dedup_seen[dkey] = (eid, now)
+        if eid:
+            alert_eids.add(eid)
+        events.append({
+            "eid": eid, "src_ip": a.get("src_ip", ""), "source": "ids",
+            "signature": a.get("signature", ""), "severity": a.get("severity", ""),
+            "method": a.get("method", ""), "url": strip_eid(a.get("url", "")),
+            "user_agent": a.get("user_agent", ""), "payload": strip_eid(a.get("payload", "")),
+        })
+    if suppressed:
+        top = ", ".join(f"{ip} sid={sid} x{n}" for (ip, sid), n in list(suppressed.items())[:3])
+        print(f"[AGENT] suppressed {sum(suppressed.values())} duplicate alert(s) "
+              f"(same source + signature within {ALERT_DEDUP_WINDOW_S}s): {top}")
+
+    for eid, uri, rec in lines:
+        if eid in alert_eids:
+            continue
+        events.append({
+            "eid": eid, "src_ip": rec.get("remote_addr", ""), "source": "web",
+            "signature": "", "severity": "", "method": rec.get("method", ""),
+            "url": strip_eid(uri), "user_agent": rec.get("http_user_agent", ""),
+            # POST form body (nginx logs $request_body) — same 300-char cap as IDS payloads
+            "payload": (rec.get("request_body", "") or "")[:300],
+        })
 
     todo, seen = [], set()
     for e in events:
@@ -300,12 +373,12 @@ def run() -> None:
         elif RESPONSE_MODE == "waf":
             handle_waf(decided)
         else:
-            late = late_ids_alerts(alerts, web_decided)
+            todo = collect_agent_events(alerts, decided,
+                                        include_web=RESPONSE_MODE == "agent")
+            late = late_ids_alerts(alerts, web_decided)      # after: a joined alert has its line's id
             if late:
                 print(f"[AGENT] {len(late)} IDS alert(s) arrived after their request was "
                       f"already triaged from the web log: {late}")
-            todo = collect_agent_events(alerts, decided,
-                                        include_web=RESPONSE_MODE == "agent")
             if todo or retries:
                 process_agent_events(app, todo, decided, retries, paused)
                 web_decided.update(e["eid"] for e in todo

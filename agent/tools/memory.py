@@ -117,14 +117,20 @@ def make_lesson(attack_type: str, predicted: str, truth: str, payload: str) -> s
 
 def record_feedback(eid: str, ground_truth: str, predicted: str, attack_type: str,
                     payload: str) -> bool:
-    """Mark whether the past decision was correct + attach a lesson if wrong."""
+    """Mark whether the past decision was correct + attach a lesson if wrong.
+
+    Only the latest decision on this eid is judged. Rows of earlier epochs keep
+    their own verdict and lesson: updating every row of the eid (the old code)
+    erased a mistake's lesson the first time the agent got that request right,
+    so it could make the same mistake again (learning curve, 2026-10-27)."""
     _ensure()
     pred_mal = predicted in ("block", "warn")
     correct = (ground_truth == "malicious") == pred_mal
     lesson = "" if correct else make_lesson(attack_type, predicted, ground_truth, payload)
     c = _conn()
     c.execute(
-        "UPDATE experience SET ground_truth=?, was_correct=?, lesson=? WHERE eid=?",
+        "UPDATE experience SET ground_truth=?, was_correct=?, lesson=? "
+        "WHERE id = (SELECT MAX(id) FROM experience WHERE eid=?)",
         (ground_truth, int(correct), lesson, eid),
     )
     c.commit()
@@ -133,20 +139,23 @@ def record_feedback(eid: str, ground_truth: str, predicted: str, attack_type: st
 
 
 def retrieve_similar(query_text: str, k: int = 3, prefer_mistakes: bool = True) -> list[dict]:
-    """Return the k most relevant *learned* past cases (those with feedback)."""
+    """Return the k most relevant *learned* past cases (those with feedback),
+    one per eid: an eid judged in several epochs keeps only its best-scoring
+    row (with prefer_mistakes, the lesson of a mistake), so one request's
+    repeats don't fill every slot."""
     _ensure()
     c = _conn()
     rows = c.execute(
-        "SELECT signature, payload, attack_type, ground_truth, was_correct, lesson, embedding "
-        "FROM experience WHERE was_correct IS NOT NULL"
+        "SELECT id, eid, signature, payload, attack_type, ground_truth, was_correct, lesson, "
+        "embedding FROM experience WHERE was_correct IS NOT NULL"
     ).fetchall()
     c.close()
     if not rows:
         return []
 
     q_emb = _embed(query_text)
-    scored = []
-    for sig, payload, atk, truth, correct, lesson, emb_json in rows:
+    best: dict[str, tuple[float, dict]] = {}
+    for row_id, eid, sig, payload, atk, truth, correct, lesson, emb_json in rows:
         case_text = f"{sig} {payload}"
         if q_emb and emb_json:
             sim = _cosine(q_emb, json.loads(emb_json))
@@ -154,10 +163,12 @@ def retrieve_similar(query_text: str, k: int = 3, prefer_mistakes: bool = True) 
             sim = _jaccard(query_text, case_text)
         if prefer_mistakes and not correct:
             sim += 0.15            # boost lessons learned from mistakes
-        scored.append((sim, {"attack_type": atk, "ground_truth": truth,
-                             "was_correct": bool(correct), "lesson": lesson,
-                             "payload": payload[:120]}))
-    scored.sort(key=lambda x: x[0], reverse=True)
+        key = eid or f"#{row_id}"
+        if key not in best or sim > best[key][0]:
+            best[key] = (sim, {"attack_type": atk, "ground_truth": truth,
+                               "was_correct": bool(correct), "lesson": lesson,
+                               "payload": payload[:120]})
+    scored = sorted(best.values(), key=lambda x: x[0], reverse=True)
     return [c for _, c in scored[:k]]
 
 

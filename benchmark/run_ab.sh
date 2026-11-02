@@ -49,8 +49,10 @@ for mode in "${MODES[@]}"; do
     # restart agent with this mode; never firewall the replay source during benchmark.
     # --force-recreate: a plain `up -d` with an unchanged env is a no-op, so runs 2..N
     # would reuse the process whose `decided` set already holds every corpus eid.
-    # --no-deps: leave ollama (and its loaded model) alone.
-    RESPONSE_MODE="$mode" BLOCK_ENABLED=false docker compose up -d --force-recreate --no-deps agent
+    # --no-deps: leave ollama (and its loaded model) alone. WEB_UNTAGGED=false: replay
+    # follows DVWA's redirects, and the agent must not triage those eid-less requests.
+    RESPONSE_MODE="$mode" BLOCK_ENABLED=false WEB_UNTAGGED=false \
+      docker compose up -d --force-recreate --no-deps agent
     sleep 12                      # agent boot (+ ollama readiness check)
     case "$mode" in agent*) warm_model ;; esac
     reset_db                      # clear prior decisions so runs don't mix

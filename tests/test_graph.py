@@ -155,6 +155,29 @@ def test_memory_lessons_are_fenced_data_not_system_messages(ollama, recorded, mo
     assert f"{UNTRUSTED_OPEN}\nLESSON-TEXT" in human
 
 
+def test_grounding_is_recorded_with_each_model_decision(ollama, recorded):
+    ollama.append(json.dumps({"decisions": [
+        {**_dec("e1", "block"), "reason": "IDS severity 1 SQL injection"},   # alert has sev 1
+        {**_dec("e2", "warn"), "reason": "IDS severity 2"}]}))              # web-only: no alert
+    _run(events=EVENTS[:2])
+    got = {r["eid"]: r["unverified"] for r in recorded}
+    assert got["e1"] == "" and got["e2"].startswith("cites IDS evidence")
+
+
+def test_unverified_block_waits_for_a_human_whatever_its_confidence(ollama, recorded, monkeypatch):
+    monkeypatch.setattr(graph, "AUTO_APPROVE", False)
+    d = {**_dec("e2", "block", conf=0.97), "reason": "IDS severity 1, SQL injection"}  # e2: web-only
+    ollama.append(json.dumps({"decisions": [d]}))
+    app = graph.build_graph(checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "t2"}}
+
+    paused = _run(events=[EVENTS[1]], app=app, config=config)
+    (item,) = paused["__interrupt__"][0].value["pending"]
+    assert item["analyst_note"].startswith("[unverified: cites IDS evidence")
+    app.invoke(Command(resume={"e2": "approve"}), config)
+    assert _actions(recorded) == {"e2": "block"}
+
+
 @pytest.mark.parametrize("answer,want", [("deny", "warn"), ("approve", "block")])
 def test_hitl_gate_interrupts_and_resumes(ollama, recorded, monkeypatch, answer, want):
     monkeypatch.setattr(graph, "AUTO_APPROVE", False)

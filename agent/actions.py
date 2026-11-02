@@ -56,14 +56,20 @@ def guess_attack(signature: str) -> str:
 
 def record_decision(*, eid: str, src_ip: str, attack: str, action: str,
                     confidence: float, reason: str, mode: str,
-                    mitre: str = "", severity: str = "", note: str = "") -> None:
-    """Persist one decision (with MITRE enrichment) and optionally enforce a block."""
+                    mitre: str = "", severity: str = "", note: str = "",
+                    unverified: str | None = None) -> None:
+    """Persist one decision (with MITRE enrichment) and optionally enforce a block.
+    `unverified`: None = not checked (rule engines, fallbacks); "" = the cited
+    evidence is in the event; else why it is not (gate.check_grounding)."""
     action = str(action)
     if action == "block" and BLOCK_ENABLED and src_ip and not is_private(src_ip):
         res = block_ip(src_ip, 3600)
         if res.get("status") not in ("blocked", "already_blocked"):
             print(f"[BLOCK-FAIL] {src_ip}: {res}")   # don't report a block that didn't happen
     msg = f"[{mode}] {action.upper()} {attack} eid={eid} conf={confidence} :: {reason}"
+    if unverified:
+        msg += f" [unverified: {unverified}]"
     send_alert(msg, src_ip=src_ip, attack_type=attack, action=action, eid=eid,
-               mode=mode, mitre=mitre, severity=severity, note=note, confidence=confidence)
+               mode=mode, mitre=mitre, severity=severity, note=note, confidence=confidence,
+               grounded=None if unverified is None else ("0" if unverified else "1"))
     print(msg)
