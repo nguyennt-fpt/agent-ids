@@ -127,3 +127,7 @@ python plot.py
   không có `--alerted` thì quay về "số row ổn định `--settle` giây".
 - Mỗi run tạo lại container agent (`--force-recreate`) → tập `decided` và offset đọc log bắt đầu mới;
   agent đọc cả `eve.json` lẫn nginx log từ cuối file lúc khởi động (không xử lý lại traffic run trước).
+- Host Ubuntu (EC2): tắt timer apt tự động, cập nhật tay lúc đầu phiên. apt tải gói qua HTTP → alert IDS rác chen vào
+  hàng đợi agent (run timeout 2026-10-27); apt cài gói → Ollama mất GPU (`systemd`) hoặc driver NVIDIA lệch phiên bản,
+  phải reboot (2026-11-01). Tắt: `sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer`. Trước khi đo:
+  `sudo apt update && sudo apt upgrade -y` → reboot nếu có gói NVIDIA/systemd/kernel → `docker exec ollama nvidia-smi -L`.

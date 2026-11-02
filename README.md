@@ -106,7 +106,7 @@ bootstrap ghép cặp theo request (B=2000).
 | Thành phần | Yêu cầu |
 |---|---|
 | AWS EC2 | g4dn.xlarge (T4 16GB VRAM, 4 vCPU, 16GB RAM) |
-| AMI | Ubuntu 22.04 LTS |
+| AMI | Ubuntu 24.04 LTS |
 | Storage | 50GB GP3 |
 | Docker | ≥ 24.0 |
 | Docker Compose | ≥ v2.20 |
@@ -119,7 +119,7 @@ bootstrap ghép cặp theo request (B=2000).
 ### 1.1 Chọn AMI và instance type
 
 Vào AWS Console → EC2 → Launch Instance:
-- **AMI**: `Ubuntu Server 22.04 LTS` (hoặc `Deep Learning Base OSS Nvidia Driver GPU AMI` để có NVIDIA driver sẵn)
+- **AMI**: `Ubuntu Server 24.04 LTS` (hoặc `Deep Learning Base OSS Nvidia Driver GPU AMI` để có NVIDIA driver sẵn)
 - **Instance type**: `g4dn.xlarge`
 - **Storage**: 50 GB GP3
 
@@ -151,7 +151,7 @@ ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 ```bash
 # Docker
 sudo apt-get update -y
-sudo apt-get install -y docker.io docker-compose-plugin
+sudo apt-get install -y docker.io docker-compose-v2
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 newgrp docker
@@ -174,7 +174,7 @@ sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 
 # Kiểm tra GPU
-docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ---
@@ -236,11 +236,12 @@ Kết quả mong đợi:
 ```
 NAME        STATUS          PORTS
 nginx       running         0.0.0.0:80->80/tcp
+waf         running
 dvwa        running
 mysql       running (healthy)
 suricata    running
 ollama      running (healthy) 0.0.0.0:11434->11434/tcp
-agent       running         0.0.0.0:8000->8000/tcp
+agent       running
 dashboard   running         0.0.0.0:5000->5000/tcp
 ```
 
@@ -261,7 +262,8 @@ Mở terminal mới, thay `<EC2_IP>` và `<PHPSESSID>` (lấy từ browser DevTo
 
 ### SQL Injection
 ```bash
-curl "http://<EC2_IP>/vulnerabilities/sqli/?id=1'+OR+1=1--&Submit=Submit" \
+# Dấu cách viết %20, không dùng '+': pcre của rule 9000001 cần khoảng trắng thật sau khi giải mã URL
+curl "http://<EC2_IP>/vulnerabilities/sqli/?id=1'%20OR%201=1--&Submit=Submit" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
