@@ -10,8 +10,11 @@ Attacker → Nginx → WAF (OWASP CRS, chỉ ghi log) → DVWA · Suricata (dete
 
 ## Agent hoạt động thế nào
 
-Agent đọc **hai nguồn**, ghép theo `eid` (id gắn vào mỗi request): alert của Suricata (`eve.json`) và web log của
-Nginx — nên nó thấy cả những request IDS không báo. Mỗi event đi qua một LangGraph `StateGraph`:
+Agent đọc **hai nguồn**: alert của Suricata (`eve.json`) và web log của Nginx — nên nó thấy cả những request IDS
+không báo. Trong benchmark, hai nguồn ghép theo `eid` (id mà bộ replay gắn vào mỗi request). Với traffic thật, dòng
+nginx mang `request_id` và được ghép với alert của cùng request theo cổng nguồn + method + URI; IP lấy từ nginx (chỉ
+tin `X-Forwarded-For` từ proxy nội bộ). Alert trùng (cùng nguồn, cùng rule trong 5 phút) chỉ được xét một lần.
+Mỗi event đi qua một LangGraph `StateGraph`:
 
 ```
 event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
@@ -23,9 +26,12 @@ event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
   suất là tấn công, kỹ thuật MITRE ATT&CK, mức độ, ghi chú cho analyst, lý do.
 - **investigate** — với ca mơ hồ: vòng ReAct tối đa 3 bước, chỉ gọi tool chỉ-đọc
   ([agent/tools/agent_tools.py](agent/tools/agent_tools.py)).
-- **risk_gate** — `block` có confidence < 0.90 phải chờ người duyệt (`interrupt()`; duyệt trên dashboard khi
-  `AUTO_APPROVE=false`).
-- **act** — ghi quyết định, chặn IP bằng iptables. Chỉ [agent/actions.py](agent/actions.py) làm việc này, tool thì không.
+- **risk_gate** — `block` có confidence < 0.90, hoặc có lý do nhắc tới bằng chứng không có trong event, phải chờ
+  người duyệt (`interrupt()`; duyệt trên dashboard khi `AUTO_APPROVE=false`).
+- **act** — ghi quyết định, chặn IP bằng một `ipset` có thời hạn 1 giờ (kernel tự gỡ, kể cả khi agent khởi động lại).
+  Chỉ [agent/actions.py](agent/actions.py) làm việc này, tool thì không. Lý do của model được đối chiếu với event
+  (nhắc alert IDS khi không có alert, sai severity, nói "encoded" khi request không mã hóa); sai thì dashboard ghi
+  "unverified".
 - Nội dung request là dữ liệu của kẻ tấn công: được bọc trong `<<UNTRUSTED_DATA>>` và prompt cấm làm theo chỉ dẫn bên
   trong (chống prompt injection).
 - Tùy chọn `MEMORY_ENABLED`: truy hồi 3 ca cũ giống nhất (embedding `nomic-embed-text`) làm ví dụ cho model.
@@ -41,7 +47,8 @@ Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn 
 5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
 từ khóa giống tấn công). Mỗi mode chạy 5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là
 bootstrap ghép cặp theo request (B=2000). Số liệu gốc (CSV): [benchmark/results/test-final-v3/](benchmark/results/test-final-v3/);
-code tạo ra chúng ở tag `exp-2026-11-01`.
+code tạo ra chúng ở tag `exp-2026-11-01`. Các cải tiến sau đó (2026-11-02: web log cho traffic thật, gộp alert, kiểm
+lý do, ipset) không đổi quyết định trên benchmark: chạy lại tập dev cho kết quả trùng lần trước.
 
 | mode | cách quyết định | Precision | Recall | F1 | FPR | MTTB |
 |---|---|---|---|---|---|---|
@@ -91,19 +98,25 @@ code tạo ra chúng ở tag `exp-2026-11-01`.
 - **Báo nhầm trên trang có lỗ hổng với input bình thường** (`fi/?page=file1.php`, đăng nhập bằng user mặc định của
   DVWA) và với từ khóa (`union`). Bản sửa prompt chỉnh trên tập dev không áp được sang tập test.
 - **Lý do không luôn bám bằng chứng:** 3 lần báo nhầm ghi "IDS severity 1/2" trong khi không có alert nào — cụm này
-  chép từ ví dụ trong prompt; vài lý do ghi "encoded" cho tên trang thường. Ghi chú của agent cần được kiểm lại.
+  chép từ ví dụ trong prompt; vài lý do ghi "encoded" cho tên trang thường. Từ 2026-11-02 những lý do kiểu này được
+  đánh dấu "unverified" (trên tập dev: 2/54 quyết định). Kiểm bằng luật đơn giản nên không bắt được mọi kiểu bịa.
 - **Chậm và tốn GPU:** ~4 s LLM cho mỗi request trên T4 (~15 request/phút); MTTB 14.7 s so với 2–3 s của IDS/WAF.
   Agent xét mọi request nên không theo kịp traffic thật nếu không lọc bớt trước.
-- **Dễ nghẽn vì alert rác:** alert không gắn được với request nào bị triage từng cái một. Một đợt apt của chính máy chủ
-  (211 alert) từng làm trễ phát hiện hơn 10 phút; trong lab đã tắt rule đó, nhưng chưa gộp alert trùng.
-- **Nguồn web log mới dùng được trong benchmark:** agent chỉ đọc dòng nginx có `eid`, tham số mà bộ replay gắn vào
-  từng request. Với traffic thật, các dòng này bị bỏ qua và agent chỉ còn nguồn IDS, tức gần với `agent_ids`
-  (≈ `rule_based`). Phần hơn đo được chưa mang ra ngoài lab được cho tới khi gắn được id cho request thật.
+- **Vẫn có thể nghẽn:** một đợt apt của chính máy chủ (211 alert) từng làm trễ phát hiện hơn 10 phút. Từ 2026-11-02
+  alert trùng (cùng nguồn, cùng rule trong 5 phút) chỉ xét một lần — 8 request tấn công giống nhau từ ngoài vào chỉ
+  tốn 1 lần gọi LLM. Nhưng nhiều alert hay request *khác nhau* vẫn xếp hàng, mỗi cái ~4 s.
+- **Web log của traffic thật mới thử ở quy mô nhỏ:** từ 2026-11-02 agent đọc cả dòng nginx không có `eid` (id theo
+  `request_id`, ghép với alert theo cổng nguồn). Đã thử với request từ ngoài vào EC2: ghép đúng, chặn đúng IP. Nhưng
+  mọi con số ở trên vẫn đo trên benchmark, và agent xét mọi request nên chỉ chịu được ~15 request/phút.
+- **IP trong alert có thể bị giả:** Suricata lấy IP từ `X-Forwarded-For` của mọi client (bộ replay cần điều này). Alert
+  ghép được với dòng nginx dùng IP của nginx; alert không ghép được (không phải HTTP, hoặc dòng nginx đến trễ quá 2
+  phút) vẫn mang IP do client tự khai, nên agent có thể chặn nhầm IP.
 - **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA), ~52% là tấn công. Bộ replay không đăng nhập DVWA nên trang lỗ
   hổng chuyển hướng về trang login: payload không thực sự chạy, chỉ đo việc phát hiện trên request (rule IDS dựa vào
   phản hồi không có dịp bắn). Với traffic thật, tấn công hiếm hơn nhiều nên precision sẽ thấp hơn. Tập test đã được
   dùng hai lần (prompt cũ rồi bản thêm định nghĩa `confidence`).
-- Experience memory có lỗi thiết kế: `record_feedback` ghi đè bài học khi agent làm đúng một lần.
+- Kết quả experience memory ở trên là của bản có lỗi (`record_feedback` xóa bài học khi agent làm đúng một lần). Lỗi đã
+  sửa ngày 2026-11-02 nhưng chưa đo lại.
 
 ---
 
@@ -155,9 +168,16 @@ ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 ### 2.1 Cài Docker và NVIDIA Container Toolkit
 
 ```bash
-# Docker
+# Docker từ repo chính thức của Docker (máy lab chạy bản này: docker-ce 29 + compose v5)
 sudo apt-get update -y
-sudo apt-get install -y docker.io docker-compose-v2
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update -y
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 newgrp docker
