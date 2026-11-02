@@ -34,6 +34,7 @@ python attack_corpus/build_corpus.py     # sinh corpus.jsonl
 
 # 1. Chạy toàn bộ A/B (5 mode × N lần) + tổng hợp + biểu đồ
 N=5 TARGET=http://localhost bash run_ab.sh
+#    SPLIT=dev khi chỉnh; SPLIT=test cho số cuối; SPLIT=held_out (tấn công chưa replay lúc chỉnh) một lần, ở cuối
 
 # Kết quả:
 #   report/summary_raw.csv  — mỗi dòng 1 run
@@ -78,13 +79,15 @@ một lần gọi model, lan sang = 0 theo cấu trúc; thêm `-e TRIAGE_BATCH=1
 ```bash
 # chạy trong container agent (có langgraph + Ollama) — trên EC2:
 docker cp benchmark agent:/tmp/bench
-docker exec -e AGENT_DIR=/app agent python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
+# MEMORY_ENABLED=false: container còn env của learning curve thì triage sẽ kèm lesson cũ
+docker exec -e AGENT_DIR=/app -e MEMORY_ENABLED=false -e RESPONSE_MODE=agent agent \
+  python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
 docker cp agent:/tmp/bench/report/adversarial_graph.csv benchmark/report/
 # -> bypass + bypass lan sang theo từng điều kiện, tác động riêng của từng lớp phòng thủ, kèm 95% CI
 ```
 
-CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu hiện có **12** (`injections.jsonl`)
-→ CI sẽ rộng; mở rộng bộ mẫu là việc riêng. Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
+CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu: **25** kỹ thuật trong 5 họ
+(`injections.jsonl`, sinh từ `build_injections.py`; 12 mẫu đầu là bộ dùng tới 2026-10-27). Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
 `agent/schemas.py` và luôn bật — không phải biến của thí nghiệm.
 
 ## Trụ 4 — Experience memory
@@ -95,8 +98,8 @@ test (chỉ dùng lesson đã học), **rồi học** từ feedback của tập 
 
 ```bash
 docker exec ollama ollama pull nomic-embed-text     # embedding cho memory
-python learning_curve.py --epochs 5 --memory on
-python learning_curve.py --epochs 5 --memory off
+python learning_curve.py --epochs 3 --memory on --delay 4    # số trong README chạy đúng lệnh này
+python learning_curve.py --epochs 3 --memory off --delay 4
 # -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ theo epoch)
 ```
 
