@@ -52,7 +52,7 @@ _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 # DVWA's exec page is a POST form — benign pings too, or the method would leak the label
 POST_FORMS = {"/vulnerabilities/exec/"}
 
-_SECTION = re.compile(r"##\s*(clear_attack|evasion)\s*::\s*(sqli|xss|cmdi|lfi|rfi)\b")
+_SECTION = re.compile(r"##\s*(clear_attack|evasion|held_out)\s*::\s*(sqli|xss|cmdi|lfi|rfi)\b")
 _FAMILY = re.compile(r"^===\s*(.+?)\s*===$")
 
 
@@ -199,6 +199,10 @@ def build() -> list[dict]:
         r["actor_ip"] = _assign_actor(r)
     assert len({r["eid"] for r in rows}) == len(rows), "duplicate corpus rows"
     _assign_splits(rows)
+    # held_out is a fully held-out test set — never exposed during development
+    for r in rows:
+        if r["group"] == "held_out":
+            r["split"] = "test"
     _interleave(rows)
     return rows
 
