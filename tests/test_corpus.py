@@ -41,7 +41,16 @@ def test_no_family_on_both_sides_of_the_split(rows):
 def test_both_splits_hold_every_label(rows):
     got = {(r["split"], r["label"]) for r in rows}
     assert got == {("dev", "malicious"), ("dev", "benign"),
-                   ("test", "malicious"), ("test", "benign")}
+                   ("test", "malicious"), ("test", "benign"), ("held_out", "malicious")}
+
+
+def test_held_out_is_its_own_split_ordered_last(rows):
+    held = [r for r in rows if r["group"] == "held_out"]
+    rest = [r for r in rows if r["group"] != "held_out"]
+    assert held and all(r["split"] == "held_out" for r in held)
+    assert all(r["split"] in ("dev", "test") for r in rest)
+    # appended after the rest, so adding the group moved no dev/test row's seq
+    assert max(r["seq"] for r in rest) < min(r["seq"] for r in held)
 
 
 def test_paths_are_dvwa_root_paths(rows):

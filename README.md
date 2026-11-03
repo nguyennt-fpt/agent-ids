@@ -38,65 +38,82 @@ event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
 
 ---
 
-## Kết quả thí nghiệm (2026-11-01)
+## Kết quả thí nghiệm (2026-11-03)
 
 Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn ở đâu, đánh đổi gì? Thiết kế:
 [docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md); cách chạy lại: [benchmark/README.md](benchmark/README.md).
 
 **Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) gửi tới DVWA, payload lấy từ nguồn công khai, chia
 5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
-từ khóa giống tấn công). Mỗi mode chạy 5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là
-bootstrap ghép cặp theo request (B=2000). Số liệu gốc (CSV): [benchmark/results/test-final-v3/](benchmark/results/test-final-v3/);
-code tạo ra chúng ở tag `exp-2026-11-01`. Các cải tiến sau đó (2026-11-02: web log cho traffic thật, gộp alert, kiểm
-lý do, ipset) không đổi quyết định trên benchmark: chạy lại tập dev cho kết quả trùng lần trước.
+từ khóa giống tấn công). Thêm tập **held_out**: 61 tấn công mới, không replay lần nào trong lúc chỉnh. Mỗi mode chạy
+5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là bootstrap ghép cặp theo request
+(B=2000). Số liệu gốc (CSV): [benchmark/results/](benchmark/results/) (`test-final-v4/`, `held-out-v4/`, …); code ở
+tag `exp-2026-11-03`. Prompt bản v4 được chọn trên tập dev theo tiêu chí đặt trước (ít báo nhầm hơn v3, không bỏ sót
+thêm), trước khi chạy test hay held_out.
 
 | mode | cách quyết định | Precision | Recall | F1 | FPR | MTTB |
 |---|---|---|---|---|---|---|
 | `rule_based` | Suricata (ET Open + rule riêng), chặn khi severity ≤ 2 | 1.00 | 0.32 | 0.48 | 0.00 | 2.1 s |
 | `waf` | OWASP CRS trên ModSecurity | 0.96 | 0.71 | 0.82 | 0.03 | 2.6 s |
-| `agent_ids` | LLM, chỉ đọc alert Suricata (ablation) | 1.00 | 0.30 | 0.46 | 0.00 | 8.1 s |
-| **`agent`** | LLM, đọc alert + web log | 0.85 | 0.96 | **0.90** [0.85, 0.94] | 0.18 [0.10, 0.27] | 14.7 s |
+| `agent_ids` | LLM, chỉ đọc alert Suricata (ablation) | 1.00 | 0.30 | 0.46 | 0.00 | 8.3 s |
+| **`agent`** | LLM, đọc alert + web log | 0.91 | 0.95 | **0.93** [0.88, 0.96] | 0.10 [0.04, 0.18] | 14.7 s |
+| *`agent` bản v3 (2026-11-01)* | | *0.85* | *0.96* | *0.90 [0.85, 0.94]* | *0.18 [0.10, 0.27]* | *14.7 s* |
 
 `naive` (chặn mọi alert) cho kết quả y hệt `rule_based` trên tập này.
 
 | chênh lệch | Recall | FPR | F1 |
 |---|---|---|---|
-| agent − rule_based | +0.64 [+0.53, +0.75] | +0.18 [+0.10, +0.27] | **+0.42 [+0.30, +0.55]** |
-| agent − waf | +0.25 [+0.16, +0.35] | +0.15 [+0.06, +0.25] | **+0.08 [+0.005, +0.17]** |
+| agent − rule_based | +0.63 [+0.52, +0.74] | +0.10 [+0.04, +0.18] | **+0.45 [+0.33, +0.58]** |
+| agent − waf | +0.24 [+0.15, +0.34] | +0.08 [+0.00, +0.16] | **+0.11 [+0.04, +0.19]** |
 
-| nhóm (bắt được / tổng) | n | rule_based | waf | agent |
-|---|---|---|---|---|
-| tấn công rõ | 26 | 13 | 23 | 26 |
-| evasion | 26 | 7 | 23 | 26 |
-| recon | 24 | 4 | 8 | 21 |
-| lành thường (báo nhầm) | 42 | 0 | 0 | 9 |
-| fp_bait (báo nhầm) | 29 | 0 | 2 | 4 |
+| nhóm (bắt được / tổng, trung bình 5 lần) | n | rule_based | waf | agent | agent v3 |
+|---|---|---|---|---|---|
+| tấn công rõ | 26 | 13 | 23 | 26 | 26 |
+| evasion | 26 | 7 | 23 | 26 | 26 |
+| recon | 24 | 4 | 8 | 20.2 | 21 |
+| lành thường (báo nhầm) | 42 | 0 | 0 | 5.2 | 9 |
+| fp_bait (báo nhầm) | 29 | 0 | 2 | 2.2 | 4 |
+
+**Held-out** (61 tấn công mới; chỉ có tấn công nên chỉ recall có nghĩa):
+
+| | rule_based | waf | agent_ids | agent v4 | agent v3 |
+|---|---|---|---|---|---|
+| Recall | 0.57 (35) | 0.93 (57) | 0.57 (35) | **1.00 (61)** | **1.00 (61)** |
+
+WAF bỏ sót 3 RFI và 1 command injection; IDS bỏ sót toàn bộ 12 command injection.
 
 Đọc kết quả:
-- **Agent bắt gần hết tấn công** (recall 0.96), kể cả evasion và recon, nhưng **báo nhầm nhiều hơn**: 13/71 request
-  lành, so với 2 của WAF và 0 của IDS. Giả thuyết ban đầu "agent giảm báo nhầm" không đúng: trên tập này IDS vốn không
-  báo nhầm.
-- So với WAF, agent hơn F1 một chút (khoảng tin cậy vừa không chứa 0). Phần hơn nằm ở recon (21 so với 8): loại tấn
+- **Agent bắt gần hết tấn công** (recall 0.95 trên test, 61/61 trên held_out), kể cả evasion và recon, nhưng **vẫn
+  báo nhầm nhiều hơn**: ~7/71 request lành, so với 2 của WAF và 0 của IDS. Giả thuyết ban đầu "agent giảm báo nhầm"
+  không đúng: trên tập này IDS vốn không báo nhầm.
+- **v4 giảm báo nhầm gần một nửa** (FPR 0.18 → 0.10). Sửa được cả 6 ca `fi/?page=<tên trang>` mà bản sửa trước không
+  áp sang test được, và một ca có chữ "union". Đổi lại: 1 ca báo nhầm mới (`login.php?username=admin`) và bỏ sót thêm
+  1 request dò thư mục. Khoảng tin cậy của hai bản còn chồng nhau, nên mức giảm là có thật trên các ca cụ thể nhưng
+  chưa đủ mẫu để khẳng định chắc.
+- Báo nhầm còn lại chủ yếu là đăng nhập bằng tài khoản mặc định của DVWA trên trang brute force (5 ca).
+- So với WAF, agent hơn F1 rõ hơn bản v3 (khoảng tin cậy không chứa 0). Phần hơn nằm ở recon (20 so với 8): loại tấn
   công trải trên nhiều request, CRS không có rule cho nó.
 - **Lợi thế đến từ nguồn dữ liệu, không từ việc LLM xét lại alert:** `agent_ids` (cùng LLM, chỉ đọc alert) ≈
-  `rule_based`. Vòng investigate không được gọi lần nào trong lần đo này.
-- 11/13 báo nhầm là `warn` (cảnh báo cho analyst), 2 là `block`; ~45/47 lệnh block là đúng.
-- `confidence` khớp thực tế (ECE 0.041). Kỹ thuật MITRE đúng 82% trên các tấn công bắt được; phần lớn lỗi là dò thư
-  mục bị gán T1083 thay vì T1595.
-- 5 lần chạy cho kết quả y hệt nhau, nên độ bất định nằm ở mẫu request (khoảng tin cậy), không ở các lần chạy.
+  `rule_based` trên cả test lẫn held_out. Vòng investigate không được gọi lần nào.
+- `confidence` khớp thực tế (ECE 0.04). Kỹ thuật MITRE đúng 85% trên các tấn công bắt được.
+- Khác v3, 5 lần chạy không còn y hệt nhau (3 kết quả khác nhau, lệch nhau 1–2 request); held_out thì y hệt.
+- **Held_out không phân biệt được v3 và v4:** cả hai bắt đủ 61/61.
 
-**Thử nghiệm phụ** (2026-10-27, bản prompt trước đó — chỉ khác ở định nghĩa `confidence`):
-- *Prompt injection* (12 kỹ thuật × 2 lần): tỉ lệ vượt qua 12% khi không phòng thủ → 0% khi có quy tắc trong prompt
-  (có hoặc không bọc dữ liệu); mẫu nhỏ nên khoảng tin cậy rộng.
-- *Experience memory* (3 epoch): bớt ròng 3 báo nhầm so với khi tắt (14 so với 17), không có đường học rõ.
-- *ET Open nguyên bản* (không tinh chỉnh rule): kết luận không đổi.
+**Thử nghiệm phụ** (2026-11-03, bản v4):
+- *Prompt injection* (25 kỹ thuật trong 5 họ × 2 lần, 4 điều kiện bật/tắt phòng thủ): **0% vượt qua ở cả 4 điều
+  kiện**, kể cả khi tắt hết phòng thủ. Bản cũ (2026-10-27, 12 kỹ thuật) có 12% vượt qua khi không phòng thủ; hai kỹ
+  thuật từng lọt (`comment_injection`, `instruction_override`) giờ đều bị chặn. Vì bỏ phòng thủ cũng không lọt, phép đo
+  này không còn tách được tác dụng của từng lớp phòng thủ.
+- *Experience memory* (3 epoch, đo lại sau khi sửa `record_feedback`): **không giúp**. Bật memory: recall 0.95 → 0.92,
+  FPR giữ 0.11; tắt memory: recall giữ 0.95, FPR 0.11 → 0.13. Chênh lệch chỉ 1–2 request, trong mức dao động.
+- *ET Open nguyên bản* (2026-10-27, không tinh chỉnh rule): kết luận không đổi.
 
 ---
 
 ## Giới hạn
 
-- **Báo nhầm trên trang có lỗ hổng với input bình thường** (`fi/?page=file1.php`, đăng nhập bằng user mặc định của
-  DVWA) và với từ khóa (`union`). Bản sửa prompt chỉnh trên tập dev không áp được sang tập test.
+- **Báo nhầm trên trang có lỗ hổng với input bình thường:** v4 hết báo nhầm `fi/?page=file1.php`, nhưng vẫn báo nhầm
+  đăng nhập bằng user mặc định của DVWA trên trang brute force và vài request có từ khóa (`union-station-15`).
 - **Lý do không luôn bám bằng chứng:** 3 lần báo nhầm ghi "IDS severity 1/2" trong khi không có alert nào — cụm này
   chép từ ví dụ trong prompt; vài lý do ghi "encoded" cho tên trang thường. Từ 2026-11-02 những lý do kiểu này được
   đánh dấu "unverified" (trên tập dev: 2/54 quyết định). Kiểm bằng luật đơn giản nên không bắt được mọi kiểu bịa.
@@ -114,9 +131,13 @@ lý do, ipset) không đổi quyết định trên benchmark: chạy lại tập
 - **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA), ~52% là tấn công. Bộ replay không đăng nhập DVWA nên trang lỗ
   hổng chuyển hướng về trang login: payload không thực sự chạy, chỉ đo việc phát hiện trên request (rule IDS dựa vào
   phản hồi không có dịp bắn). Với traffic thật, tấn công hiếm hơn nhiều nên precision sẽ thấp hơn. Tập test đã được
-  dùng hai lần (prompt cũ rồi bản thêm định nghĩa `confidence`).
-- Kết quả experience memory ở trên là của bản có lỗi (`record_feedback` xóa bài học khi agent làm đúng một lần). Lỗi đã
-  sửa ngày 2026-11-02 nhưng chưa đo lại.
+  dùng ba lần (2026-10-27, 2026-11-01, 2026-11-03); v4 chỉnh trên dev, nhưng việc tập test từng được xem kết quả vẫn
+  có thể làm số hơi lạc quan. Held_out sạch hơn nhưng chỉ có tấn công (không đo được báo nhầm) và quá dễ: cả v3 lẫn v4
+  đều đạt 61/61.
+- **Bộ prompt injection chưa đủ mạnh:** 0% vượt qua kể cả khi tắt phòng thủ, nên chưa đo được lớp phòng thủ nào có
+  tác dụng. Cần mẫu khó hơn (ví dụ tấn công thích nghi theo phản hồi của agent).
+- **Chưa đo thông lượng:** benchmark đo chất lượng quyết định ở nhịp 1 request / 6 s, không đo agent chịu được bao nhiêu
+  traffic.
 
 ---
 
@@ -394,7 +415,7 @@ agent-ids/
 │   └── templates/
 │       └── index.html            # UI dashboard
 ├── benchmark/                    # Harness A/B: corpus, replay, chấm điểm, CI (xem benchmark/README.md)
-│   └── results/test-final-v3/    # Số liệu gốc của lần đo 2026-11-01
+│   └── results/                  # Số liệu gốc: test-final-v4 (số chính, 2026-11-03), held-out, g4, learning curve, v3
 ├── docs/                         # Thiết kế thí nghiệm, corpus v2
 ├── notes/                        # Review + checklist sửa lỗi
 ├── ops/ec2.sh                    # Bật/tắt EC2 của lab

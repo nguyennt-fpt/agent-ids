@@ -41,7 +41,7 @@ def needs_human(action: str, confidence: float, grounded: bool = True) -> bool:
 
 # What only an IDS alert could have told the model. On the 2026-11-01 test set,
 # 3 false positives on web-only events gave "IDS severity 1/2" as the reason (the
-# phrase is in the prompt's example) although no alert had fired.
+# phrase was in the prompt's example until v4) although no alert had fired.
 _IDS_CLAIM = re.compile(r"\b(ids|suricata|snort|sid\s*\d+)\b", re.I)
 _SEV_CLAIM = re.compile(r"\bseverity\s*(?:level\s*)?[:=]?\s*([1-4])\b", re.I)
 _ENC_CLAIM = re.compile(r"\b(encoded|encoding|obfuscat\w*|base64)\b", re.I)

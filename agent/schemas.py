@@ -10,7 +10,7 @@ the evaluation harness never has to change.
 import json
 from enum import Enum
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class Action(str, Enum):
@@ -19,8 +19,21 @@ class Action(str, Enum):
     log = "log"       # benign / informational
 
 
+def _reason_before_action(schema: dict) -> None:
+    """Ollama's JSON-schema grammar writes the required fields first, in property
+    order, and the optional ones after. With `reason` optional the model picked
+    `action` right after `eid` and justified it afterwards; required (in the
+    schema only — code may still omit it) it states the evidence first."""
+    schema["required"] = ["eid", "reason", "action"]
+
+
 class Decision(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_reason_before_action)
+
     eid: str = Field(description="Event id this decision is for — copied verbatim from the event.")
+    reason: str = Field(default="", description="Written before the action: the attack syntax "
+                                                "or recon pattern quoted from the event, or the "
+                                                "ordinary value when there is none.")
     action: Action = Field(description="block/warn for attacks, log for benign.")
     attack_type: str = Field(
         default="none",
@@ -34,7 +47,6 @@ class Decision(BaseModel):
     mitre_technique: str = Field(default="", description="MITRE ATT&CK technique id, e.g. T1190")
     severity: str = Field(default="", description="low / medium / high / critical")
     analyst_note: str = Field(default="", description="1–2 sentence SOC L1 note (what/why/action)")
-    reason: str = Field(default="", description="Short technical justification.")
 
     @field_validator("action", mode="before")
     @classmethod

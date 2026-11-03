@@ -34,6 +34,7 @@ python attack_corpus/build_corpus.py     # sinh corpus.jsonl
 
 # 1. Chạy toàn bộ A/B (5 mode × N lần) + tổng hợp + biểu đồ
 N=5 TARGET=http://localhost bash run_ab.sh
+#    SPLIT=dev khi chỉnh; SPLIT=test cho số cuối; SPLIT=held_out (tấn công chưa replay lúc chỉnh) một lần, ở cuối
 
 # Kết quả:
 #   report/summary_raw.csv  — mỗi dòng 1 run
@@ -78,13 +79,15 @@ một lần gọi model, lan sang = 0 theo cấu trúc; thêm `-e TRIAGE_BATCH=1
 ```bash
 # chạy trong container agent (có langgraph + Ollama) — trên EC2:
 docker cp benchmark agent:/tmp/bench
-docker exec -e AGENT_DIR=/app agent python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
+# MEMORY_ENABLED=false: container còn env của learning curve thì triage sẽ kèm lesson cũ
+docker exec -e AGENT_DIR=/app -e MEMORY_ENABLED=false -e RESPONSE_MODE=agent agent \
+  python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
 docker cp agent:/tmp/bench/report/adversarial_graph.csv benchmark/report/
 # -> bypass + bypass lan sang theo từng điều kiện, tác động riêng của từng lớp phòng thủ, kèm 95% CI
 ```
 
-CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu hiện có **12** (`injections.jsonl`)
-→ CI sẽ rộng; mở rộng bộ mẫu là việc riêng. Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
+CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu: **25** kỹ thuật trong 5 họ
+(`injections.jsonl`, sinh từ `build_injections.py`; 12 mẫu đầu là bộ dùng tới 2026-10-27). Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
 `agent/schemas.py` và luôn bật — không phải biến của thí nghiệm.
 
 ## Trụ 4 — Experience memory
@@ -95,8 +98,8 @@ test (chỉ dùng lesson đã học), **rồi học** từ feedback của tập 
 
 ```bash
 docker exec ollama ollama pull nomic-embed-text     # embedding cho memory
-python learning_curve.py --epochs 5 --memory on
-python learning_curve.py --epochs 5 --memory off
+python learning_curve.py --epochs 3 --memory on --delay 4    # số trong README chạy đúng lệnh này
+python learning_curve.py --epochs 3 --memory off --delay 4
 # -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ theo epoch)
 ```
 
@@ -113,15 +116,16 @@ python plot.py
 ## Đọc kết quả
 - `compare_quality.png` — Precision/Recall/F1/FPR/Accuracy theo mode (có error bar = std).
 - `compare_groups.png` — **nơi agent nên thắng**: `recall_evasion` ↑ (bắt evasion Suricata miss) và `fpr_fpbait` ↓ (không chặn nhầm request trông giống attack).
-  Kết quả 2026-11-01: thắng ở evasion (recall 1.00, WAF 0.88, IDS 0.27), không thắng ở fp_bait (FPR 0.14, WAF 0.07, IDS 0).
+  Kết quả 2026-11-03 (v4): thắng ở evasion (recall 1.00, WAF 0.88, IDS 0.27), không thắng ở fp_bait (FPR 0.08, WAF 0.07, IDS 0).
 - `compare_mttb.png` — agent thường **chậm hơn** (LLM ~vài giây) — tradeoff trung thực.
 - Nhịp replay: rule/WAF `DELAY` (0.5s), agent* `DELAY_LLM` (mặc định 6s). Triage từng event tốn ~4.4s LLM/request
   trên T4; nhịp 4s (2026-10-27) không còn dư → MTTB đo hàng đợi và một run tụt >10 phút. Giữ tải ≲75%.
 
 ## Lưu ý
 - `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
-- Corpus: **199 mẫu** (98 tấn công / 101 lành; dev 52, test 147) từ nguồn công khai — `attack_corpus/build_corpus.py`.
-  Tập test đã dùng cho hai lần đo cuối (2026-10-27, 2026-11-01) → đổi prompt/logic sau này cần tập held-out mới.
+- Corpus: **260 mẫu** (159 tấn công / 101 lành; dev 52, test 147, held_out 61 — chỉ tấn công) từ nguồn công khai —
+  `attack_corpus/build_corpus.py`. Tập test đã dùng cho ba lần đo cuối (2026-10-27, 2026-11-01, 2026-11-03), held_out
+  một lần (2026-11-03) → đổi prompt/logic sau này cần tập mới, có cả request lành.
 - `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định;
   `rule_based`/`naive`/`agent_ids` chờ đủ các `eid` Suricata đã alert trong run này (`alerted_eids.py` →
   `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 2700s — chỉ là chốt an toàn: một run chậm phải

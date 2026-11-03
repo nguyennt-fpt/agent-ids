@@ -9,7 +9,7 @@ Corpus v2 rows (docs/CORPUS_V2.md) also carry `split`, `seq` (replay order),
 `body` (POST form fields). v1 rows without them replay as before.
 
 Usage:
-  python replay.py --target http://localhost --delay 0.5 [--split dev|test]
+  python replay.py --target http://localhost --delay 0.5 [--split dev|test|held_out]
 """
 
 import argparse
@@ -70,7 +70,7 @@ def main() -> None:
     ap.add_argument("--delay", type=float, default=0.5,
                     help="seconds between requests (let IDS+agent process)")
     ap.add_argument("--out", default=os.path.join(REPORT_DIR, "sent.jsonl"))
-    ap.add_argument("--split", choices=["dev", "test"],
+    ap.add_argument("--split", choices=["dev", "test", "held_out"],
                     help="replay only this split (corpus v2); default: every row")
     args = ap.parse_args()
 

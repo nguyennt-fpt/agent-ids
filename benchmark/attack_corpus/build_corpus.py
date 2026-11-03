@@ -5,8 +5,8 @@ well-known public references (PayloadsAllTheThings, PortSwigger Web Security
 Academy, OWASP, SecLists) and kept in two committed data files next to this
 script, so the build is reproducible and the payloads are auditable:
 
-  payloads_attack.txt          clear_attack + evasion, one payload per line
-                               under `## <group> :: <attack_type>` sections,
+  payloads_attack.txt          clear_attack + evasion + held_out, one payload
+                               per line under `## <group> :: <attack_type>` sections,
                                optional `=== family ===` grouping (see the
                                file's own header for the format).
   payloads_benign_recon.json   fp_bait, benign_normal, and the recon group
@@ -14,7 +14,8 @@ script, so the build is reproducible and the payloads are auditable:
 
 v2 layout (docs/CORPUS_V2.md): deterministic eids, a benchmark actor per row
 (sent as X-Forwarded-For), interleaved replay order (`seq`) in which each recon
-chain is one contiguous burst, and a fixed dev/test split by payload family. Command
+chain is one contiguous burst, and a fixed dev/test split by payload family; the
+held_out group is a third split, replayed once. Command
 injection goes as a POST form, as DVWA's exec page does. Run: python build_corpus.py
 """
 
@@ -52,7 +53,7 @@ _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 # DVWA's exec page is a POST form — benign pings too, or the method would leak the label
 POST_FORMS = {"/vulnerabilities/exec/"}
 
-_SECTION = re.compile(r"##\s*(clear_attack|evasion)\s*::\s*(sqli|xss|cmdi|lfi|rfi)\b")
+_SECTION = re.compile(r"##\s*(clear_attack|evasion|held_out)\s*::\s*(sqli|xss|cmdi|lfi|rfi)\b")
 _FAMILY = re.compile(r"^===\s*(.+?)\s*===$")
 
 
@@ -158,7 +159,7 @@ def _assign_actor(row: dict) -> str:
     return rng.choice(USERS)
 
 
-def _interleave(rows: list[dict]) -> None:
+def _interleave(rows: list[dict], seed: object = SEED, start: int = 0) -> None:
     """Shuffle so a replay (and triage batch) is no longer all-attacks-then-all-
     benign. Each recon chain is shuffled as ONE unit, in order: a scan or a brute
     force is a burst — rule 9000050 only fires on 10 logins within 60 s, and
@@ -171,9 +172,9 @@ def _interleave(rows: list[dict]) -> None:
         else:
             units.append([r])
     units += [sorted(c, key=lambda r: r["_order"]) for c in chains.values()]
-    random.Random(SEED).shuffle(units)
+    random.Random(seed).shuffle(units)
     rows[:] = [r for u in units for r in u]
-    for seq, r in enumerate(rows):
+    for seq, r in enumerate(rows, start):
         r.pop("_order", None)
         r["seq"] = seq
 
@@ -199,8 +200,16 @@ def build() -> list[dict]:
         r["actor_ip"] = _assign_actor(r)
     assert len({r["eid"] for r in rows}) == len(rows), "duplicate corpus rows"
     _assign_splits(rows)
-    _interleave(rows)
-    return rows
+    # held_out is a fully held-out test set — never exposed during development.
+    # Its own split, ordered after every other row: the dev/test replays and
+    # their seq stay exactly as they were before the group was added.
+    main = [r for r in rows if r["group"] != "held_out"]
+    held = [r for r in rows if r["group"] == "held_out"]
+    for r in held:
+        r["split"] = "held_out"
+    _interleave(main)
+    _interleave(held, seed=f"{SEED}-held_out", start=len(main))
+    return main + held
 
 
 if __name__ == "__main__":

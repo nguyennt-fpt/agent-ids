@@ -1,0 +1,49 @@
+mode,metric,point,lo,hi,n_eids
+agent,recall,1.0,1.0,1.0,61
+agent,fpr,nan,nan,nan,61
+agent,precision,1.0,1.0,1.0,61
+agent,f1,1.0,1.0,1.0,61
+agent_ids,recall,0.5738,0.459,0.7049,61
+agent_ids,fpr,nan,nan,nan,61
+agent_ids,precision,1.0,1.0,1.0,61
+agent_ids,f1,0.7292,0.6292,0.8269,61
+naive,recall,0.5738,0.459,0.7049,61
+naive,fpr,nan,nan,nan,61
+naive,precision,1.0,1.0,1.0,61
+naive,f1,0.7292,0.6292,0.8269,61
+rule_based,recall,0.5738,0.459,0.7049,61
+rule_based,fpr,nan,nan,nan,61
+rule_based,precision,1.0,1.0,1.0,61
+rule_based,f1,0.7292,0.6292,0.8269,61
+waf,recall,0.9344,0.8689,0.9836,61
+waf,fpr,nan,nan,nan,61
+waf,precision,1.0,1.0,1.0,61
+waf,f1,0.9661,0.9298,0.9917,61
+agent - rule_based,recall,0.4262,0.2951,0.541,61
+agent - rule_based,fpr,nan,nan,nan,61
+agent - rule_based,precision,0.0,0.0,0.0,61
+agent - rule_based,f1,0.2708,0.1731,0.3708,61
+agent_ids - rule_based,recall,0.0,0.0,0.0,61
+agent_ids - rule_based,fpr,nan,nan,nan,61
+agent_ids - rule_based,precision,0.0,0.0,0.0,61
+agent_ids - rule_based,f1,0.0,0.0,0.0,61
+naive - rule_based,recall,0.0,0.0,0.0,61
+naive - rule_based,fpr,nan,nan,nan,61
+naive - rule_based,precision,0.0,0.0,0.0,61
+naive - rule_based,f1,0.0,0.0,0.0,61
+waf - rule_based,recall,0.3607,0.2131,0.5082,61
+waf - rule_based,fpr,nan,nan,nan,61
+waf - rule_based,precision,0.0,0.0,0.0,61
+waf - rule_based,f1,0.2369,0.1327,0.3525,61
+agent - waf,recall,0.0656,0.0164,0.1311,61
+agent - waf,fpr,nan,nan,nan,61
+agent - waf,precision,0.0,0.0,0.0,61
+agent - waf,f1,0.0339,0.0083,0.0702,61
+agent_ids - waf,recall,-0.3607,-0.5082,-0.2131,61
+agent_ids - waf,fpr,nan,nan,nan,61
+agent_ids - waf,precision,0.0,0.0,0.0,61
+agent_ids - waf,f1,-0.2369,-0.3525,-0.1327,61
+naive - waf,recall,-0.3607,-0.5082,-0.2131,61
+naive - waf,fpr,nan,nan,nan,61
+naive - waf,precision,0.0,0.0,0.0,61
+naive - waf,f1,-0.2369,-0.3525,-0.1327,61

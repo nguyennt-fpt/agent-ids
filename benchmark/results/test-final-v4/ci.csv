@@ -1,0 +1,49 @@
+mode,metric,point,lo,hi,n_eids
+agent,recall,0.95,0.8957,0.9886,147
+agent,fpr,0.1042,0.042,0.1785,147
+agent,precision,0.9071,0.8403,0.9637,147
+agent,f1,0.928,0.8824,0.9649,147
+agent_ids,recall,0.3026,0.2029,0.4085,147
+agent_ids,fpr,0.0,0.0,0.0,147
+agent_ids,precision,1.0,1.0,1.0,147
+agent_ids,f1,0.4646,0.3373,0.58,147
+naive,recall,0.3158,0.2143,0.4235,147
+naive,fpr,0.0,0.0,0.0,147
+naive,precision,1.0,1.0,1.0,147
+naive,f1,0.48,0.3529,0.595,147
+rule_based,recall,0.3158,0.2143,0.4235,147
+rule_based,fpr,0.0,0.0,0.0,147
+rule_based,precision,1.0,1.0,1.0,147
+rule_based,f1,0.48,0.3529,0.595,147
+waf,recall,0.7105,0.6,0.809,147
+waf,fpr,0.0282,0.0,0.0735,147
+waf,precision,0.9643,0.9057,1.0,147
+waf,f1,0.8182,0.7387,0.8841,147
+agent - rule_based,recall,0.6342,0.5158,0.7438,147
+agent - rule_based,fpr,0.1042,0.042,0.1785,147
+agent - rule_based,precision,-0.0929,-0.1597,-0.0363,147
+agent - rule_based,f1,0.448,0.3267,0.5788,147
+agent_ids - rule_based,recall,-0.0132,-0.0429,0.0,147
+agent_ids - rule_based,fpr,0.0,0.0,0.0,147
+agent_ids - rule_based,precision,0.0,0.0,0.0,147
+agent_ids - rule_based,f1,-0.0154,-0.0511,0.0,147
+naive - rule_based,recall,0.0,0.0,0.0,147
+naive - rule_based,fpr,0.0,0.0,0.0,147
+naive - rule_based,precision,0.0,0.0,0.0,147
+naive - rule_based,f1,0.0,0.0,0.0,147
+waf - rule_based,recall,0.3947,0.2568,0.5263,147
+waf - rule_based,fpr,0.0282,0.0,0.0735,147
+waf - rule_based,precision,-0.0357,-0.0943,0.0,147
+waf - rule_based,f1,0.3382,0.2094,0.471,147
+agent - waf,recall,0.2395,0.145,0.3435,147
+agent - waf,fpr,0.0761,0.0,0.1644,147
+agent - waf,precision,-0.0572,-0.1363,0.0213,147
+agent - waf,f1,0.1098,0.0382,0.19,147
+agent_ids - waf,recall,-0.4079,-0.5357,-0.274,147
+agent_ids - waf,fpr,-0.0282,-0.0735,0.0,147
+agent_ids - waf,precision,0.0357,0.0,0.0943,147
+agent_ids - waf,f1,-0.3535,-0.486,-0.2249,147
+naive - waf,recall,-0.3947,-0.5278,-0.2568,147
+naive - waf,fpr,-0.0282,-0.0735,0.0,147
+naive - waf,precision,0.0357,0.0,0.0943,147
+naive - waf,f1,-0.3382,-0.4713,-0.2095,147

@@ -1,0 +1,2 @@
+mode,precision_mean,recall_mean,f1_mean,fpr_mean,accuracy_mean,mttb_s_mean,ttb_p95_s_mean,recall_evasion_mean,fpr_fpbait_mean,mitre_acc_mean,undecided_mean,precision_std,recall_std,f1_std,fpr_std,accuracy_std,mttb_s_std,ttb_p95_s_std,recall_evasion_std,fpr_fpbait_std,mitre_acc_std,undecided_std
+agent,1.0,1.0,1.0,0.0,1.0,20.126,30.8086,0.0,0.0,0.9836,0.0,0.0,0.0,0.0,0.0,0.0,0.3368,0.9586,0.0,0.0,0.0,0.0
