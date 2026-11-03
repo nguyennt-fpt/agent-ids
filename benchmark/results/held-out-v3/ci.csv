@@ -1,0 +1,5 @@
+mode,metric,point,lo,hi,n_eids
+agent,recall,1.0,1.0,1.0,61
+agent,fpr,nan,nan,nan,61
+agent,precision,1.0,1.0,1.0,61
+agent,f1,1.0,1.0,1.0,61

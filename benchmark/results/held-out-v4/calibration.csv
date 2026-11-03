@@ -1,0 +1,5 @@
+mode,bin,n,mean_confidence,attack_rate
+agent,"[0.8, 0.9)",39,0.85,1.0
+agent,"[0.9, 1.0]",266,0.95,1.0
+agent_ids,"[0.8, 0.9)",34,0.85,1.0
+agent_ids,"[0.9, 1.0]",141,0.95,1.0
