@@ -1,82 +1,97 @@
-# Thiết kế thí nghiệm — agent-ids Giai đoạn 2
+# Experiment design — agent-ids Phase 2
 
-Tài liệu này giữ **cốt lõi khoa học** của dự án trong repo, để mọi session/người đọc hiểu *tại sao* thiết kế như vậy mà không cần plan file ẩn.
+This document keeps the project's **scientific core** in the repo, so any reader can understand *why* it is designed
+this way without a hidden plan file.
 
-## Câu hỏi nghiên cứu
+## Research question
 
-> AI agent (LLM + memory) có thực sự cải thiện chất lượng phát hiện/phản ứng so với IDS rule-based (Suricata) thuần không, và cải thiện ở đâu, đánh đổi gì?
+> Does an AI agent (LLM + memory) actually improve detection/response quality over a plain rule-based IDS (Suricata),
+> and if so, where, and at what cost?
 
-## Insight quyết định toàn bộ: agent chỉ thắng ở 3 chỗ IDS yếu
+## The insight that drives everything: the agent can only win where the IDS is weak
 
-Nếu corpus chỉ có tấn công rõ ràng → Suricata bắt ~100% → số liệu chứng minh agent *vô dụng*. Vì vậy thí nghiệm phải xây quanh 3 điểm yếu của rule-based:
+If the corpus contained only clear attacks, Suricata would catch ~100% and the numbers would show the agent is
+*useless*. So the experiment is built around 3 weaknesses of rule-based detection:
 
-| Điểm yếu rule-based | Agent thắng nhờ | Số liệu |
+| Rule-based weakness | Agent wins through | Metric |
 |---|---|---|
-| Evasion/obfuscation (URL-encode kép, `/**/`, case-mix, base64) | Hiểu ngữ nghĩa | ↑ Recall |
-| False positive (từ khóa giống attack nhưng benign) | Hiểu ngữ cảnh | ↓ FPR |
-| Multi-step (1 req benign, 50 req/s = recon) | Nhìn chuỗi sự kiện | ↑ phát hiện scan |
+| Evasion/obfuscation (double URL-encoding, `/**/`, case-mix, base64) | Understanding semantics | ↑ Recall |
+| False positives (attack-like keywords that are benign) | Understanding context | ↓ FPR |
+| Multi-step (1 request is benign, 50 req/s = recon) | Seeing the sequence of events | ↑ scan detection |
 
-## Kiến trúc "2 nguồn" (vì sao agent vừa ↓FP vừa ↑Recall)
+## The "two sources" architecture (why the agent can both ↓FP and ↑Recall)
 
 ```
-Suricata ──▶ Nguồn 1: eve.json (high-signal, có thể miss evasion)
+Suricata ──▶ Source 1: eve.json (high-signal, may miss evasion)
                                                           ├──▶ AGENT ──▶ block/warn/log
-Nginx    ──▶ Nguồn 2: access.log (broad, bắt cái Suricata miss)
+Nginx    ──▶ Source 2: access.log (broad, catches what Suricata misses)
 ```
 
-- `rule_based`/`naive` chỉ thấy `eve.json` → kế thừa recall của Suricata.
-- `agent` đọc thêm nginx access log (`main.collect_agent_events`, nguồn "web") → bắt cái Suricata không alert → ↑recall. Đây là chỗ "IDS và agent bổ trợ nhau".
+- `rule_based`/`naive` only see `eve.json` → they inherit Suricata's recall.
+- `agent` also reads the nginx access log (`main.collect_agent_events`, source "web") → catches what Suricata does not
+  alert on → ↑recall. This is where "the IDS and the agent complement each other".
 
-## 3 cấu hình so sánh (biến `RESPONSE_MODE`)
+## The compared configurations (the `RESPONSE_MODE` variable)
 
-| Mode | Logic | Vai trò |
+| Mode | Logic | Role |
 |---|---|---|
-| `rule_based` | eve.json; block nếu severity ≤ 2 | IDS truyền thống + auto-response |
-| `naive` | eve.json; block MỌI alert | Baseline thô (over-block) |
-| `agent` | LLM + 2 nguồn | Phương pháp đề xuất |
-| `agent_ids` | cùng LLM, chỉ eve.json | Ablation (E1): phần thắng của `agent` đến từ nguồn 2 hay từ suy luận |
-| `waf` | OWASP CRS (ModSecurity, trong đường đi, DetectionOnly) | Baseline chuẩn doanh nghiệp: tấn công web thường được chặn bằng WAF, không phải NIDS |
+| `rule_based` | eve.json; block if severity ≤ 2 | Traditional IDS + auto-response |
+| `naive` | eve.json; block EVERY alert | Crude baseline (over-blocking) |
+| `agent` | LLM + 2 sources | Proposed method |
+| `agent_ids` | same LLM, eve.json only | Ablation (E1): does `agent`'s gain come from source 2 or from reasoning |
+| `waf` | OWASP CRS (ModSecurity, inline, DetectionOnly) | Enterprise-standard baseline: web attacks are usually stopped by a WAF, not a NIDS |
 
-## Cách đo công bằng
+## Fair measurement
 
-- Đo ở **tầng quyết định** (không phải iptables), vì traffic từ 1 IP.
-- Mỗi request có **`eid` duy nhất** nhúng trong query string → truy vết qua `eve.json` và SQLite.
-- Quyết định nhị phân malicious(block/warn) vs benign(log/ignore) → so ground-truth → Precision/Recall/F1/FPR + **MTTB**.
-- **Benign vắng mặt:** request benign không match rule → không có entry eve.json → đối chiếu danh sách `eid` đã gửi (vắng = benign), không chỉ đọc eve.json.
-- **Sync:** chờ tất cả `eid` vào SQLite (hoặc timeout) trước khi score (tránh race polling 5s).
-- **Khoa học:** LLM non-deterministic → N=5 lần, báo cáo mean ± std. **Không hứa con số trước.**
-- **Bất định do mẫu:** std qua N run không đo được việc corpus chỉ có ~100 request → báo cáo thêm 95% CI bootstrap
-  ghép cặp theo request (`benchmark/bootstrap_ci.py`); khẳng định "agent > rule_based" chỉ khi CI của chênh lệch không chứa 0.
-- **Ruleset IDS:** ET Open + custom rules. Số liệu chính dùng bản tinh chỉnh tối thiểu (`ids/rules/disable.conf`: chỉ tắt
-  rule không nạp được và rule `2221036` — bắn trên phản hồi của chính DVWA, kể cả request benign). Tinh chỉnh áp như
-  nhau cho mọi mode. **Phụ lục:** chạy lại trên ET Open nguyên bản (`disable-untuned.conf`) để chứng minh kết luận không
-  dựa vào việc tinh chỉnh (quyết định 2026-10-25, phương án (ii)).
+- Measure at the **decision layer** (not iptables), since the traffic comes from one IP.
+- Every request carries a **unique `eid`** in its query string → traced through `eve.json` and SQLite.
+- Binary decision malicious (block/warn) vs benign (log/ignore) → compared with ground truth →
+  Precision/Recall/F1/FPR + **MTTB**.
+- **Absent benign requests:** a benign request that matches no rule has no eve.json entry → compare against the list of
+  sent `eid`s (absent = benign), not just eve.json.
+- **Sync:** wait until every `eid` is in SQLite (or a timeout) before scoring (avoids racing the 5 s poll).
+- **Rigor:** LLMs are non-deterministic → N=5 runs, report mean ± std. **No numbers promised in advance.**
+- **Sampling uncertainty:** the std over N runs does not capture that the corpus has only ~100 requests → also report
+  a 95% CI from a request-paired bootstrap (`benchmark/bootstrap_ci.py`); claim "agent > rule_based" only when the CI
+  of the difference excludes 0.
+- **IDS ruleset:** ET Open + custom rules. The main numbers use a minimally tuned version (`ids/rules/disable.conf`:
+  only turns off rules that fail to load and rule `2221036` — it fires on DVWA's own responses, benign requests
+  included). The tuning applies equally to every mode. **Appendix:** re-run on untuned ET Open
+  (`disable-untuned.conf`) to show the conclusions do not depend on the tuning (decided 2026-10-25, option (ii)).
 
-## Chống bias (rủi ro nghiêm trọng nhất)
+## Guarding against bias (the most serious risk)
 
-Tôi vừa viết rule, vừa viết prompt — nếu tự chế corpus dễ "dựng để AI thắng". Biện pháp:
-- Payload từ **nguồn công khai độc lập** (PayloadsAllTheThings, PortSwigger, OWASP), ghi cột `source`.
-- Corpus evasion tách khỏi quá trình viết Suricata rule.
+The same person writes the rules and the prompt — a self-made corpus could easily be "built for the AI to win".
+Countermeasures:
+- Payloads come from **independent public sources** (PayloadsAllTheThings, PortSwigger, OWASP), recorded in a
+  `source` column.
+- The evasion corpus is kept separate from writing the Suricata rules.
 
-## Vì sao KHÔNG dùng CICIDS2017/NSL-KDD làm chính
+## Why CICIDS2017/NSL-KDD is NOT the main dataset
 
-Đó là network-flow features đã trích xuất (packet count, duration...), không phải HTTP payload thô → không khớp hệ thống phân tích payload-semantics. Corpus web-attack tự thiết kế kiểm soát chính xác 3 nhóm điểm yếu. (CICIDS → Future Work nếu mở rộng network-layer.)
+Those are pre-extracted network-flow features (packet count, duration...), not raw HTTP payloads → they do not fit a
+system that analyzes payload semantics. A purpose-built web-attack corpus controls the 3 weakness groups precisely.
+(CICIDS → Future Work if extending to the network layer.)
 
-## Trụ 4B — rule tự sinh: ĐÃ CẮT khỏi phạm vi (2026-10-25, quyết định E2)
+## Pillar 4B — self-generated rules: CUT from scope (2026-10-25, decision E2)
 
-Không đo, không báo cáo; code (`rule_validator`, `ids_manager`, golden set, bảng dashboard) đã xóa 2026-10-25. Lý do:
-pipeline không có đường chạy (không gì gọi chúng từ khi bỏ MCP; container agent không có binary `suricata`), gate 2/3 chỉ mô phỏng bằng regex trên 14–20 mẫu nên ngưỡng
-precision ≥ 0.95 không có ý nghĩa thống kê. Làm thật cần sidecar Suricata + pcap. Giữ lại dưới dạng Future Work —
-thiết kế dự định (còn hợp lệ nếu làm sau):
+Not measured, not reported; the code (`rule_validator`, `ids_manager`, golden set, dashboard table) was deleted on
+2026-10-25. Reasons: the pipeline had no execution path (nothing called it after MCP was dropped; the agent container
+has no `suricata` binary), and gates 2/3 were only simulated with regexes on 14–20 samples, so a precision ≥ 0.95
+threshold has no statistical meaning. Doing it for real needs a Suricata sidecar + pcaps. Kept as Future Work — the
+intended design (still valid if done later):
 
-Validation pipeline 4 gate (không tin mù output LLM):
-1. **Syntax** — `suricata -T -S candidate.rules` offline, fail → reject.
-2. **Shadow/canary** — rule chỉ `alert`; replay held-out → precision riêng ≥ 0.95 mới promote.
-3. **Regression** — chạy lại golden set cố định; F1 giảm → REJECT + rollback (đảm bảo monotonic improvement).
-4. **Runtime guardrail** — FP vượt ngưỡng → auto-disable; audit trail; tùy chọn human-in-the-loop.
+A 4-gate validation pipeline (never trust LLM output blindly):
+1. **Syntax** — `suricata -T -S candidate.rules` offline; fail → reject.
+2. **Shadow/canary** — the rule only `alert`s; replay held-out data → promote only at precision ≥ 0.95.
+3. **Regression** — re-run a fixed golden set; F1 drops → REJECT + rollback (guarantees monotonic improvement).
+4. **Runtime guardrail** — FP above a threshold → auto-disable; audit trail; optional human-in-the-loop.
 
-"Tiến hóa tích cực" đo bằng: qua epoch `#active rules ↑`, `Recall ↑`, `FPR` phẳng, `MTTB ↓`. Rule đánh giá trên held-out **khác** data sinh nó → tránh overfit.
+"Positive evolution" is measured as: across epochs `#active rules ↑`, `Recall ↑`, `FPR` flat, `MTTB ↓`. Rules are
+evaluated on held-out data **different** from the data that generated them → avoids overfitting.
 
-## Tiêu chí thành công
+## Success criteria
 
-`report/summary.csv` cho thấy agent thắng F1 tổng hợp (↓FPR + ↑Recall) dù MTTB cao hơn (tradeoff trung thực); bypass_rate giảm sau defense; MITRE accuracy đo được; learning curve memory-on dốc xuống vs memory-off phẳng. Mọi số liệu dạng mean ± std (N=5).
+`report/summary.csv` shows the agent winning on overall F1 (↓FPR + ↑Recall) despite a higher MTTB (an honest
+trade-off); bypass_rate drops with the defenses; MITRE accuracy is measurable; the memory-on learning curve slopes
+down while memory-off stays flat. Every number as mean ± std (N=5).

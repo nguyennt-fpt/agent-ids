@@ -1,4 +1,4 @@
-"""Learning curve for experience memory (Trụ 4A).
+"""Learning curve for experience memory (Pillar 4A).
 
 Each epoch: (1) EVALUATE — replay the eval split and score it, using only
 lessons learned so far; (2) LEARN — replay the feedback split and write its

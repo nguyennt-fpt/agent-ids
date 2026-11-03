@@ -4,7 +4,7 @@ Each request carries its `eid` in the query string so it can be traced through
 eve.json (Suricata) and the agent's SQLite decisions. Writes a ground-truth +
 timing reference to report/sent.jsonl for score.py.
 
-Corpus v2 rows (docs/CORPUS_V2.md) also carry `split`, `seq` (replay order),
+Corpus v2 rows also carry `split`, `seq` (replay order),
 `actor_ip` (sent as X-Forwarded-For so nginx and Suricata see the actor) and
 `body` (POST form fields). v1 rows without them replay as before.
 

@@ -1,7 +1,7 @@
 httpx==0.27.0
 watchdog==4.0.0
 
-# ─── LangGraph agent (Giai đoạn 2) ─────────────────────────────────────────────
+# ─── LangGraph agent (Phase 2) ─────────────────────────────────────────────
 # Version floors, not hard pins — the LangChain stack moves fast; pin exact
 # versions after the first successful build on EC2.
 langgraph>=0.2.0

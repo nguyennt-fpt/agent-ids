@@ -1,4 +1,4 @@
-"""Risk tiering + human-in-the-loop gate (bài 06 — Trustworthy Agents).
+"""Risk tiering + human-in-the-loop gate (lesson 06 — Trustworthy Agents).
 
 Mirrors the course's demo_human_in_the_loop.py: an action is classified into a
 risk tier, and the high tier requires oversight. For an IDS responder the

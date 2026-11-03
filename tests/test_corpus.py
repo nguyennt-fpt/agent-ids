@@ -1,4 +1,4 @@
-"""Corpus v2 framework (docs/CORPUS_V2.md): deterministic build, family-level
+"""Corpus v2 framework: deterministic build, family-level
 dev/test split, actors, POST forms; replay request construction."""
 
 import json

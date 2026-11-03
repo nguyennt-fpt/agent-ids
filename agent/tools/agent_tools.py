@@ -1,10 +1,10 @@
 """Read-only enrichment tools the agent may call while investigating an
-ambiguous event (bài 04 — Tool Use).
+ambiguous event (lesson 04 — Tool Use).
 
-Least-privilege (bài 06): the LLM can only *look* — gather more context to make
+Least-privilege (lesson 06): the LLM can only *look* — gather more context to make
 a better call. Enforcement actions (block an IP, change IDS rules) are performed
 by graph nodes behind the risk / human gate, never chosen directly by the model.
-Tool `description`s matter more than names — the model routes on them (bài 04).
+Tool `description`s matter more than names — the model routes on them (lesson 04).
 """
 
 import json

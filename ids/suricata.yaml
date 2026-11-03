@@ -67,7 +67,7 @@ outputs:
             http-body-printable: yes
             metadata: yes
             tagged-packets: yes
-            # Benchmark actors are carried in X-Forwarded-For (docs/CORPUS_V2.md §4):
+            # Benchmark actors are carried in X-Forwarded-For:
             # overwrite the alert's src_ip with it so Suricata and nginx (realip)
             # agree on the source. Lab-only trust: a real client could forge XFF.
             xff:

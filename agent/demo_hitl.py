@@ -1,4 +1,4 @@
-"""Interactive human-in-the-loop demo (bài 06) — approve or deny an autonomous
+"""Interactive human-in-the-loop demo (lesson 06) — approve or deny an autonomous
 block through the LangGraph risk gate.
 
 The headless agent auto-approves (AUTO_APPROVE=true) so the benchmark never
@@ -50,7 +50,7 @@ def main() -> None:
     # loop while the graph is paused waiting for human approval
     while result.get("__interrupt__"):
         payload = result["__interrupt__"][0].value
-        print("\n=== HUMAN APPROVAL REQUIRED (bài 06 HITL) ===")
+        print("\n=== HUMAN APPROVAL REQUIRED (lesson 06 HITL) ===")
         approvals = {}
         for p in payload.get("pending", []):
             print(f"  BLOCK {p['src_ip']}  eid={p['eid']}  attack={p['attack_type']}  "

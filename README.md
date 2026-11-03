@@ -1,165 +1,174 @@
 # IDS + AI Agent Security System
 
-Hệ thống phát hiện và ngăn chặn tấn công lai ghép: **Suricata IDS** (rule-based, <1ms) + **AI Agent** (Qwen2.5-14B, contextual analysis). Target thử nghiệm: **DVWA** (Damn Vulnerable Web Application).
+A hybrid attack detection and response system: **Suricata IDS** (rule-based, <1ms) + **AI Agent** (Qwen2.5-14B, contextual analysis). Test target: **DVWA** (Damn Vulnerable Web Application).
 
 ```
-Attacker → Nginx → WAF (OWASP CRS, chỉ ghi log) → DVWA · Suricata (detect) → AI Agent (decide) → iptables (block)
+Attacker → Nginx → WAF (OWASP CRS, logging only) → DVWA · Suricata (detect) → AI Agent (decide) → iptables (block)
 ```
 
 ---
 
-## Agent hoạt động thế nào
+## How the agent works
 
-Agent đọc **hai nguồn**: alert của Suricata (`eve.json`) và web log của Nginx — nên nó thấy cả những request IDS
-không báo. Trong benchmark, hai nguồn ghép theo `eid` (id mà bộ replay gắn vào mỗi request). Với traffic thật, dòng
-nginx mang `request_id` và được ghép với alert của cùng request theo cổng nguồn + method + URI; IP lấy từ nginx (chỉ
-tin `X-Forwarded-For` từ proxy nội bộ). Alert trùng (cùng nguồn, cùng rule trong 5 phút) chỉ được xét một lần.
-Mỗi event đi qua một LangGraph `StateGraph`:
+The agent reads **two sources**: Suricata alerts (`eve.json`) and the Nginx web log — so it also sees requests the IDS
+does not alert on. In the benchmark the two sources are joined on `eid` (an id the replay tool puts on every request).
+For real traffic, each nginx line carries a `request_id` and is joined with the alert for the same request by source
+port + method + URI; the IP comes from nginx (`X-Forwarded-For` is trusted only from the internal proxy). Duplicate
+alerts (same source, same rule within 5 minutes) are judged once. Each event goes through a LangGraph `StateGraph`:
 
 ```
 event ─▶ triage ─┬─ confidence 0.35–0.75 ─▶ investigate ─┐
-                 └──────────── còn lại ──────────────────┴─▶ risk_gate ─▶ act
+                 └──────────── otherwise ────────────────┴─▶ risk_gate ─▶ act
 ```
 
-- **triage** — Qwen2.5-14B (Ollama, GPU) xét từng event một (`TRIAGE_BATCH=1`) và trả về `Decision` theo schema
-  Pydantic ([agent/schemas.py](agent/schemas.py)): `action` (block / warn / log), loại tấn công, `confidence` = xác
-  suất là tấn công, kỹ thuật MITRE ATT&CK, mức độ, ghi chú cho analyst, lý do.
-- **investigate** — với ca mơ hồ: vòng ReAct tối đa 3 bước, chỉ gọi tool chỉ-đọc
+- **triage** — Qwen2.5-14B (Ollama, GPU) judges one event at a time (`TRIAGE_BATCH=1`) and returns a `Decision`
+  following a Pydantic schema ([agent/schemas.py](agent/schemas.py)): `action` (block / warn / log), attack type,
+  `confidence` = probability that it is an attack, MITRE ATT&CK technique, severity, analyst note, reason.
+- **investigate** — for ambiguous cases: a ReAct loop of at most 3 steps that can only call read-only tools
   ([agent/tools/agent_tools.py](agent/tools/agent_tools.py)).
-- **risk_gate** — `block` có confidence < 0.90, hoặc có lý do nhắc tới bằng chứng không có trong event, phải chờ
-  người duyệt (`interrupt()`; duyệt trên dashboard khi `AUTO_APPROVE=false`).
-- **act** — ghi quyết định, chặn IP bằng một `ipset` có thời hạn 1 giờ (kernel tự gỡ, kể cả khi agent khởi động lại).
-  Chỉ [agent/actions.py](agent/actions.py) làm việc này, tool thì không. Lý do của model được đối chiếu với event
-  (nhắc alert IDS khi không có alert, sai severity, nói "encoded" khi request không mã hóa); sai thì dashboard ghi
-  "unverified".
-- Nội dung request là dữ liệu của kẻ tấn công: được bọc trong `<<UNTRUSTED_DATA>>` và prompt cấm làm theo chỉ dẫn bên
-  trong (chống prompt injection).
-- Tùy chọn `MEMORY_ENABLED`: truy hồi 3 ca cũ giống nhất (embedding `nomic-embed-text`) làm ví dụ cho model.
+- **risk_gate** — a `block` with confidence < 0.90, or whose reason cites evidence that is not in the event, waits for
+  a human (`interrupt()`; approved on the dashboard when `AUTO_APPROVE=false`).
+- **act** — records the decision and blocks the IP with an `ipset` entry that expires after 1 hour (the kernel removes
+  it, even if the agent restarts). Only [agent/actions.py](agent/actions.py) does this, never a tool. The model's reason
+  is checked against the event (citing an IDS alert when there is none, wrong severity, saying "encoded" when the
+  request is not encoded); if it does not match, the dashboard marks it "unverified".
+- Request content is attacker-controlled data: it is wrapped in `<<UNTRUSTED_DATA>>` and the prompt forbids following
+  instructions inside it (prompt-injection defense).
+- Optional `MEMORY_ENABLED`: retrieves the 3 most similar past cases (`nomic-embed-text` embeddings) as examples for
+  the model.
 
 ---
 
-## Kết quả thí nghiệm (2026-11-03)
+## Experiment results (2026-11-03)
 
-Câu hỏi: agent có phát hiện tốt hơn IDS rule-based không, tốt hơn ở đâu, đánh đổi gì? Thiết kế:
-[docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md); cách chạy lại: [benchmark/README.md](benchmark/README.md).
+Question: does the agent detect better than a rule-based IDS, where, and at what cost? Design:
+[docs/EXPERIMENT_DESIGN.md](docs/EXPERIMENT_DESIGN.md); how to reproduce: [benchmark/README.md](benchmark/README.md).
 
-**Cách đo.** Tập test 147 request HTTP (76 tấn công / 71 lành) gửi tới DVWA, payload lấy từ nguồn công khai, chia
-5 nhóm: tấn công rõ, evasion, recon (brute force, dò thư mục), request lành thường, và *fp_bait* (request lành nhưng có
-từ khóa giống tấn công). Thêm tập **held_out**: 61 tấn công mới, không replay lần nào trong lúc chỉnh. Mỗi mode chạy
-5 lần; chấm ở tầng quyết định (block/warn = phát hiện). Khoảng tin cậy 95% là bootstrap ghép cặp theo request
-(B=2000). Số liệu gốc (CSV): [benchmark/results/](benchmark/results/) (`test-final-v4/`, `held-out-v4/`, …); code ở
-tag `exp-2026-11-03`. Prompt bản v4 được chọn trên tập dev theo tiêu chí đặt trước (ít báo nhầm hơn v3, không bỏ sót
-thêm), trước khi chạy test hay held_out.
+**Method.** A test set of 147 HTTP requests (76 attacks / 71 benign) sent to DVWA, payloads taken from public sources,
+in 5 groups: clear attacks, evasion, recon (brute force, directory scanning), normal benign requests, and *fp_bait*
+(benign requests containing attack-like keywords). Plus a **held_out** set: 61 new attacks never replayed while
+tuning. Each mode runs 5 times; scoring is at the decision layer (block/warn = detected). 95% confidence intervals are
+a request-paired bootstrap (B=2000). Raw numbers (CSV): [benchmark/results/](benchmark/results/) (`test-final-v4/`,
+`held-out-v4/`, …); code at tag `exp-2026-11-03`. Prompt v4 was chosen on the dev set against a pre-registered
+criterion (fewer false positives than v3, no new misses), before any test or held_out run.
 
-| mode | cách quyết định | Precision | Recall | F1 | FPR | MTTB |
+| mode | how it decides | Precision | Recall | F1 | FPR | MTTB |
 |---|---|---|---|---|---|---|
-| `rule_based` | Suricata (ET Open + rule riêng), chặn khi severity ≤ 2 | 1.00 | 0.32 | 0.48 | 0.00 | 2.1 s |
-| `waf` | OWASP CRS trên ModSecurity | 0.96 | 0.71 | 0.82 | 0.03 | 2.6 s |
-| `agent_ids` | LLM, chỉ đọc alert Suricata (ablation) | 1.00 | 0.30 | 0.46 | 0.00 | 8.3 s |
-| **`agent`** | LLM, đọc alert + web log | 0.91 | 0.95 | **0.93** [0.88, 0.96] | 0.10 [0.04, 0.18] | 14.7 s |
-| *`agent` bản v3 (2026-11-01)* | | *0.85* | *0.96* | *0.90 [0.85, 0.94]* | *0.18 [0.10, 0.27]* | *14.7 s* |
+| `rule_based` | Suricata (ET Open + custom rules), block when severity ≤ 2 | 1.00 | 0.32 | 0.48 | 0.00 | 2.1 s |
+| `waf` | OWASP CRS on ModSecurity | 0.96 | 0.71 | 0.82 | 0.03 | 2.6 s |
+| `agent_ids` | LLM, reads Suricata alerts only (ablation) | 1.00 | 0.30 | 0.46 | 0.00 | 8.3 s |
+| **`agent`** | LLM, reads alerts + web log | 0.91 | 0.95 | **0.93** [0.88, 0.96] | 0.10 [0.04, 0.18] | 14.7 s |
+| *`agent` v3 (2026-11-01)* | | *0.85* | *0.96* | *0.90 [0.85, 0.94]* | *0.18 [0.10, 0.27]* | *14.7 s* |
 
-`naive` (chặn mọi alert) cho kết quả y hệt `rule_based` trên tập này.
+`naive` (block every alert) gives exactly the same result as `rule_based` on this set.
 
-| chênh lệch | Recall | FPR | F1 |
+| difference | Recall | FPR | F1 |
 |---|---|---|---|
 | agent − rule_based | +0.63 [+0.52, +0.74] | +0.10 [+0.04, +0.18] | **+0.45 [+0.33, +0.58]** |
 | agent − waf | +0.24 [+0.15, +0.34] | +0.08 [+0.00, +0.16] | **+0.11 [+0.04, +0.19]** |
 
-| nhóm (bắt được / tổng, trung bình 5 lần) | n | rule_based | waf | agent | agent v3 |
+| group (caught / total, mean of 5 runs) | n | rule_based | waf | agent | agent v3 |
 |---|---|---|---|---|---|
-| tấn công rõ | 26 | 13 | 23 | 26 | 26 |
+| clear attack | 26 | 13 | 23 | 26 | 26 |
 | evasion | 26 | 7 | 23 | 26 | 26 |
 | recon | 24 | 4 | 8 | 20.2 | 21 |
-| lành thường (báo nhầm) | 42 | 0 | 0 | 5.2 | 9 |
-| fp_bait (báo nhầm) | 29 | 0 | 2 | 2.2 | 4 |
+| normal benign (false positives) | 42 | 0 | 0 | 5.2 | 9 |
+| fp_bait (false positives) | 29 | 0 | 2 | 2.2 | 4 |
 
-**Held-out** (61 tấn công mới; chỉ có tấn công nên chỉ recall có nghĩa):
+**Held-out** (61 new attacks; attacks only, so only recall is meaningful):
 
 | | rule_based | waf | agent_ids | agent v4 | agent v3 |
 |---|---|---|---|---|---|
 | Recall | 0.57 (35) | 0.93 (57) | 0.57 (35) | **1.00 (61)** | **1.00 (61)** |
 
-WAF bỏ sót 3 RFI và 1 command injection; IDS bỏ sót toàn bộ 12 command injection.
+The WAF missed 3 RFI and 1 command injection; the IDS missed all 12 command injections.
 
-Đọc kết quả:
-- **Agent bắt gần hết tấn công** (recall 0.95 trên test, 61/61 trên held_out), kể cả evasion và recon, nhưng **vẫn
-  báo nhầm nhiều hơn**: ~7/71 request lành, so với 2 của WAF và 0 của IDS. Giả thuyết ban đầu "agent giảm báo nhầm"
-  không đúng: trên tập này IDS vốn không báo nhầm.
-- **v4 giảm báo nhầm gần một nửa** (FPR 0.18 → 0.10). Sửa được cả 6 ca `fi/?page=<tên trang>` mà bản sửa trước không
-  áp sang test được, và một ca có chữ "union". Đổi lại: 1 ca báo nhầm mới (`login.php?username=admin`) và bỏ sót thêm
-  1 request dò thư mục. Khoảng tin cậy của hai bản còn chồng nhau, nên mức giảm là có thật trên các ca cụ thể nhưng
-  chưa đủ mẫu để khẳng định chắc.
-- Báo nhầm còn lại chủ yếu là đăng nhập bằng tài khoản mặc định của DVWA trên trang brute force (5 ca).
-- So với WAF, agent hơn F1 rõ hơn bản v3 (khoảng tin cậy không chứa 0). Phần hơn nằm ở recon (20 so với 8): loại tấn
-  công trải trên nhiều request, CRS không có rule cho nó.
-- **Lợi thế đến từ nguồn dữ liệu, không từ việc LLM xét lại alert:** `agent_ids` (cùng LLM, chỉ đọc alert) ≈
-  `rule_based` trên cả test lẫn held_out. Vòng investigate không được gọi lần nào.
-- `confidence` khớp thực tế (ECE 0.04). Kỹ thuật MITRE đúng 85% trên các tấn công bắt được.
-- Khác v3, 5 lần chạy không còn y hệt nhau (3 kết quả khác nhau, lệch nhau 1–2 request); held_out thì y hệt.
-- **Held_out không phân biệt được v3 và v4:** cả hai bắt đủ 61/61.
+Reading the results:
+- **The agent catches almost every attack** (recall 0.95 on test, 61/61 on held_out), including evasion and recon,
+  but **still has more false positives**: ~7/71 benign requests, versus 2 for the WAF and 0 for the IDS. The initial
+  hypothesis "the agent reduces false positives" does not hold: on this set the IDS has no false positives to begin
+  with.
+- **v4 nearly halves the false positives** (FPR 0.18 → 0.10). It fixes all 6 `fi/?page=<page name>` cases that the
+  earlier fix did not carry over to test, plus one case containing the word "union". In exchange: 1 new false positive
+  (`login.php?username=admin`) and 1 more missed directory-scan request. The two versions' confidence intervals still
+  overlap, so the reduction is real on the specific cases but the sample is too small to claim it firmly.
+- The remaining false positives are mostly logins with DVWA's default accounts on the brute-force page (5 cases).
+- Against the WAF, the agent's F1 lead is clearer than with v3 (the confidence interval excludes 0). The lead comes
+  from recon (20 vs 8): an attack spread over many requests, which CRS has no rules for.
+- **The advantage comes from the data source, not from the LLM re-judging alerts:** `agent_ids` (same LLM, alerts
+  only) ≈ `rule_based` on both test and held_out. The investigate loop was never invoked.
+- `confidence` matches reality (ECE 0.04). The MITRE technique is correct for 85% of the caught attacks.
+- Unlike v3, the 5 runs are no longer identical (3 distinct outcomes, differing by 1–2 requests); held_out runs are
+  identical.
+- **Held_out does not separate v3 from v4:** both catch all 61/61.
 
-**Thử nghiệm phụ** (2026-11-03, bản v4):
-- *Prompt injection* (25 kỹ thuật trong 5 họ × 2 lần, 4 điều kiện bật/tắt phòng thủ): **0% vượt qua ở cả 4 điều
-  kiện**, kể cả khi tắt hết phòng thủ. Bản cũ (2026-10-27, 12 kỹ thuật) có 12% vượt qua khi không phòng thủ; hai kỹ
-  thuật từng lọt (`comment_injection`, `instruction_override`) giờ đều bị chặn. Vì bỏ phòng thủ cũng không lọt, phép đo
-  này không còn tách được tác dụng của từng lớp phòng thủ.
-- *Experience memory* (3 epoch, đo lại sau khi sửa `record_feedback`): **không giúp**. Bật memory: recall 0.95 → 0.92,
-  FPR giữ 0.11; tắt memory: recall giữ 0.95, FPR 0.11 → 0.13. Chênh lệch chỉ 1–2 request, trong mức dao động.
-- *ET Open nguyên bản* (2026-10-27, không tinh chỉnh rule): kết luận không đổi.
-
----
-
-## Giới hạn
-
-- **Báo nhầm trên trang có lỗ hổng với input bình thường:** v4 hết báo nhầm `fi/?page=file1.php`, nhưng vẫn báo nhầm
-  đăng nhập bằng user mặc định của DVWA trên trang brute force và vài request có từ khóa (`union-station-15`).
-- **Lý do không luôn bám bằng chứng:** 3 lần báo nhầm ghi "IDS severity 1/2" trong khi không có alert nào — cụm này
-  chép từ ví dụ trong prompt; vài lý do ghi "encoded" cho tên trang thường. Từ 2026-11-02 những lý do kiểu này được
-  đánh dấu "unverified" (trên tập dev: 2/54 quyết định). Kiểm bằng luật đơn giản nên không bắt được mọi kiểu bịa.
-- **Chậm và tốn GPU:** ~4 s LLM cho mỗi request trên T4 (~15 request/phút); MTTB 14.7 s so với 2–3 s của IDS/WAF.
-  Agent xét mọi request nên không theo kịp traffic thật nếu không lọc bớt trước.
-- **Vẫn có thể nghẽn:** một đợt apt của chính máy chủ (211 alert) từng làm trễ phát hiện hơn 10 phút. Từ 2026-11-02
-  alert trùng (cùng nguồn, cùng rule trong 5 phút) chỉ xét một lần — 8 request tấn công giống nhau từ ngoài vào chỉ
-  tốn 1 lần gọi LLM. Nhưng nhiều alert hay request *khác nhau* vẫn xếp hàng, mỗi cái ~4 s.
-- **Web log của traffic thật mới thử ở quy mô nhỏ:** từ 2026-11-02 agent đọc cả dòng nginx không có `eid` (id theo
-  `request_id`, ghép với alert theo cổng nguồn). Đã thử với request từ ngoài vào EC2: ghép đúng, chặn đúng IP. Nhưng
-  mọi con số ở trên vẫn đo trên benchmark, và agent xét mọi request nên chỉ chịu được ~15 request/phút.
-- **IP trong alert có thể bị giả:** Suricata lấy IP từ `X-Forwarded-For` của mọi client (bộ replay cần điều này). Alert
-  ghép được với dòng nginx dùng IP của nginx; alert không ghép được (không phải HTTP, hoặc dòng nginx đến trễ quá 2
-  phút) vẫn mang IP do client tự khai, nên agent có thể chặn nhầm IP.
-- **Phạm vi đo hẹp:** 147 request, một ứng dụng (DVWA), ~52% là tấn công. Bộ replay không đăng nhập DVWA nên trang lỗ
-  hổng chuyển hướng về trang login: payload không thực sự chạy, chỉ đo việc phát hiện trên request (rule IDS dựa vào
-  phản hồi không có dịp bắn). Với traffic thật, tấn công hiếm hơn nhiều nên precision sẽ thấp hơn. Tập test đã được
-  dùng ba lần (2026-10-27, 2026-11-01, 2026-11-03); v4 chỉnh trên dev, nhưng việc tập test từng được xem kết quả vẫn
-  có thể làm số hơi lạc quan. Held_out sạch hơn nhưng chỉ có tấn công (không đo được báo nhầm) và quá dễ: cả v3 lẫn v4
-  đều đạt 61/61.
-- **Bộ prompt injection chưa đủ mạnh:** 0% vượt qua kể cả khi tắt phòng thủ, nên chưa đo được lớp phòng thủ nào có
-  tác dụng. Cần mẫu khó hơn (ví dụ tấn công thích nghi theo phản hồi của agent).
-- **Chưa đo thông lượng:** benchmark đo chất lượng quyết định ở nhịp 1 request / 6 s, không đo agent chịu được bao nhiêu
-  traffic.
+**Side experiments** (2026-11-03, v4):
+- *Prompt injection* (25 techniques in 5 families × 2 repeats, 4 conditions toggling the defenses): **0% bypass in all
+  4 conditions**, even with every defense off. The old run (2026-10-27, 12 techniques) had 12% bypass without defenses;
+  the two techniques that got through then (`comment_injection`, `instruction_override`) are now blocked. Since
+  removing the defenses lets nothing through either, this measurement can no longer separate the effect of each
+  defense layer.
+- *Experience memory* (3 epochs, re-measured after the `record_feedback` fix): **no gain**. Memory on: recall
+  0.95 → 0.92, FPR stays 0.11; memory off: recall stays 0.95, FPR 0.11 → 0.13. The differences are 1–2 requests,
+  within run-to-run noise.
+- *Untuned ET Open* (2026-10-27, no rule tuning): the conclusions do not change.
 
 ---
 
-## Yêu cầu hệ thống
+## Limitations
 
-| Thành phần | Yêu cầu |
+- **False positives on vulnerable pages with normal input:** v4 no longer flags `fi/?page=file1.php`, but it still
+  flags logins with DVWA's default users on the brute-force page and a few requests with keywords
+  (`union-station-15`).
+- **Reasons do not always follow the evidence:** 3 false positives said "IDS severity 1/2" when there was no alert —
+  a phrase copied from an example in the prompt; some reasons said "encoded" for plain page names. Since 2026-11-02
+  such reasons are marked "unverified" (on the dev set: 2/54 decisions). The check uses simple rules, so it does not
+  catch every kind of fabrication.
+- **Slow and GPU-hungry:** ~4 s of LLM time per request on a T4 (~15 requests/minute); MTTB 14.7 s versus 2–3 s for
+  the IDS/WAF. The agent judges every request, so it cannot keep up with real traffic without pre-filtering.
+- **Can still back up:** an apt run on the host itself (211 alerts) once delayed detection by more than 10 minutes.
+  Since 2026-11-02, duplicate alerts (same source, same rule within 5 minutes) are judged once — 8 identical attack
+  requests from outside cost a single LLM call. But many *different* alerts or requests still queue, ~4 s each.
+- **Real-traffic web log only tried at small scale:** since 2026-11-02 the agent also reads nginx lines without an
+  `eid` (keyed by `request_id`, joined with alerts by source port). Tried with requests from outside to the EC2 host:
+  joined correctly, blocked the right IP. But every number above is still measured on the benchmark, and since the
+  agent judges every request it only handles ~15 requests/minute.
+- **IPs in alerts can be spoofed:** Suricata takes the IP from `X-Forwarded-For` for every client (the replay tool
+  needs this). Alerts joined with an nginx line use nginx's IP; alerts that cannot be joined (not HTTP, or the nginx
+  line arrives more than 2 minutes late) still carry the client-supplied IP, so the agent may block the wrong IP.
+- **Narrow scope:** 147 requests, one application (DVWA), ~52% attacks. The replay tool does not log in to DVWA, so the
+  vulnerable pages redirect to the login page: payloads never actually execute, only detection on the request is
+  measured (IDS rules that depend on the response never get a chance to fire). With real traffic, attacks are far
+  rarer, so precision will be lower. The test set has been used three times (2026-10-27, 2026-11-01, 2026-11-03); v4
+  was tuned on dev, but having seen test results before may still make the numbers slightly optimistic. Held_out is
+  cleaner but contains only attacks (false positives cannot be measured) and is too easy: both v3 and v4 reach 61/61.
+- **The prompt-injection set is not strong enough:** 0% bypass even with the defenses off, so it does not show which
+  defense layer helps. Harder samples are needed (e.g. attacks that adapt to the agent's responses).
+- **Throughput not measured:** the benchmark measures decision quality at 1 request / 6 s, not how much traffic the
+  agent can handle.
+
+---
+
+## System requirements
+
+| Component | Requirement |
 |---|---|
 | AWS EC2 | g4dn.xlarge (T4 16GB VRAM, 4 vCPU, 16GB RAM) |
 | AMI | Ubuntu 24.04 LTS |
 | Storage | 50GB GP3 |
 | Docker | ≥ 24.0 |
 | Docker Compose | ≥ v2.20 |
-| NVIDIA Driver | ≥ 525 (có sẵn trong Deep Learning AMI) |
+| NVIDIA Driver | ≥ 525 (preinstalled on the Deep Learning AMI) |
 
 ---
 
-## Bước 1 — Tạo EC2 Instance
+## Step 1 — Create the EC2 instance
 
-### 1.1 Chọn AMI và instance type
+### 1.1 Choose the AMI and instance type
 
-Vào AWS Console → EC2 → Launch Instance:
-- **AMI**: `Ubuntu Server 24.04 LTS` (hoặc `Deep Learning Base OSS Nvidia Driver GPU AMI` để có NVIDIA driver sẵn)
+AWS Console → EC2 → Launch Instance:
+- **AMI**: `Ubuntu Server 24.04 LTS` (or `Deep Learning Base OSS Nvidia Driver GPU AMI` to get the NVIDIA driver
+  preinstalled)
 - **Instance type**: `g4dn.xlarge`
 - **Storage**: 50 GB GP3
 
@@ -171,25 +180,25 @@ Inbound rules:
   Type: HTTP     Port: 80    Source: <YOUR_IP>/32
   Type: Custom   Port: 5000  Source: <YOUR_IP>/32
 
-Outbound: All traffic (để pull Docker images và Ollama model)
+Outbound: All traffic (to pull Docker images and the Ollama model)
 ```
 
 ### 1.3 Key pair
-Tạo hoặc chọn key pair `.pem` để SSH.
+Create or choose a `.pem` key pair for SSH.
 
 ---
 
-## Bước 2 — Setup môi trường trên EC2
+## Step 2 — Set up the environment on EC2
 
-SSH vào instance:
+SSH into the instance:
 ```bash
 ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-### 2.1 Cài Docker và NVIDIA Container Toolkit
+### 2.1 Install Docker and the NVIDIA Container Toolkit
 
 ```bash
-# Docker từ repo chính thức của Docker (máy lab chạy bản này: docker-ce 29 + compose v5)
+# Docker from Docker's official repo (the lab host runs this: docker-ce 29 + compose v5)
 sudo apt-get update -y
 sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -203,11 +212,11 @@ sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 newgrp docker
 
-# NVIDIA driver (nếu dùng Ubuntu AMI thuần, bỏ qua nếu dùng Deep Learning AMI)
+# NVIDIA driver (on a plain Ubuntu AMI; skip on the Deep Learning AMI)
 sudo apt-get install -y ubuntu-drivers-common
 sudo ubuntu-drivers autoinstall
 sudo reboot
-# SSH lại sau khi reboot
+# SSH back in after the reboot
 
 # NVIDIA Container Toolkit
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
@@ -220,66 +229,66 @@ sudo apt-get install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 
-# Kiểm tra GPU
+# Check the GPU
 docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ---
 
-## Bước 3 — Clone và cấu hình project
+## Step 3 — Clone and configure the project
 
 ```bash
-git clone <repo_url> agent-ids
+git clone https://github.com/nguyennt-fpt/agent-ids.git agent-ids
 cd agent-ids
 ```
 
-Hoặc copy toàn bộ thư mục lên EC2 bằng `scp`:
+Or copy the whole folder to EC2 with `scp`:
 ```bash
 scp -i your-key.pem -r ./agent-ids ubuntu@<EC2_IP>:~/
 ```
 
 ---
 
-## Bước 4 — Khởi động hệ thống
+## Step 4 — Start the system
 
-### 4.1 Pull Suricata rules (một lần)
+### 4.1 Pull Suricata rules (once)
 
 ```bash
-# Chạy suricata-update để download ET Open rules. disable.conf tắt các rule
-# Modbus/DNP3 (thiếu chúng thì `suricata -T` của suricata-update fail) và rule nhiễu
-# 2221036 — xem ids/rules/disable.conf
+# Run suricata-update to download the ET Open rules. disable.conf turns off the
+# Modbus/DNP3 rules (without them suricata-update's `suricata -T` fails) and the noisy
+# rule 2221036 — see ids/rules/disable.conf
 docker run --rm \
   -v $(pwd)/ids/rules:/etc/suricata/rules \
   jasonish/suricata:latest \
   suricata-update --no-reload --disable-conf /etc/suricata/rules/disable.conf \
     --output /etc/suricata/rules
-# Khi stack đã chạy: `bash ids/update_rules.sh` (cài + kiểm + restart Suricata);
-# `bash ids/update_rules.sh untuned` cho lần chạy phụ lục trên ET Open nguyên bản.
+# Once the stack is running: `bash ids/update_rules.sh` (install + verify + restart Suricata);
+# `bash ids/update_rules.sh untuned` for the appendix run on untuned ET Open.
 ```
 
-### 4.2 Start tất cả services
+### 4.2 Start all services
 
 ```bash
 docker compose up -d
 ```
 
-Lần đầu sẽ mất 5-10 phút để pull images.
+The first start takes 5–10 minutes to pull images.
 
-### 4.3 Pull Ollama model (quan trọng — chỉ làm 1 lần)
+### 4.3 Pull the Ollama model (important — once only)
 
 ```bash
 docker exec ollama ollama pull qwen2.5:14b
 ```
 
-> Qwen2.5-14B Q4_K_M ~9GB — quá trình download mất 10-20 phút tùy băng thông.
+> Qwen2.5-14B Q4_K_M is ~9GB — the download takes 10–20 minutes depending on bandwidth.
 
-### 4.4 Kiểm tra tất cả services đang chạy
+### 4.4 Check that every service is running
 
 ```bash
 docker compose ps
 ```
 
-Kết quả mong đợi:
+Expected output:
 ```
 NAME        STATUS          PORTS
 nginx       running         0.0.0.0:80->80/tcp
@@ -294,27 +303,27 @@ dashboard   running         0.0.0.0:5000->5000/tcp
 
 ---
 
-## Bước 5 — Thiết lập DVWA
+## Step 5 — Set up DVWA
 
-1. Mở trình duyệt: `http://<EC2_IP>/setup.php`
+1. Open in a browser: `http://<EC2_IP>/setup.php`
 2. Click **"Create / Reset Database"**
-3. Đăng nhập: `admin` / `password`
-4. Vào **DVWA Security** → chọn **"Low"** → Submit
+3. Log in: `admin` / `password`
+4. Go to **DVWA Security** → choose **"Low"** → Submit
 
 ---
 
-## Bước 6 — Test tấn công
+## Step 6 — Test attacks
 
-Mở terminal mới, thay `<EC2_IP>` và `<PHPSESSID>` (lấy từ browser DevTools → cookies):
+In a new terminal, replace `<EC2_IP>` and `<PHPSESSID>` (from the browser's DevTools → cookies):
 
 ### SQL Injection
 ```bash
-# Dấu cách viết %20, không dùng '+': pcre của rule 9000001 cần khoảng trắng thật sau khi giải mã URL
+# Write spaces as %20, not '+': rule 9000001's pcre needs real whitespace after URL decoding
 curl "http://<EC2_IP>/vulnerabilities/sqli/?id=1'%20OR%201=1--&Submit=Submit" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
-### XSS Reflected
+### Reflected XSS
 ```bash
 curl "http://<EC2_IP>/vulnerabilities/xss_r/?name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
@@ -333,7 +342,7 @@ curl "http://<EC2_IP>/vulnerabilities/fi/?page=../../../../../../etc/passwd" \
   -b "security=low; PHPSESSID=<PHPSESSID>"
 ```
 
-### Brute Force (10 requests nhanh)
+### Brute Force (a quick burst of requests)
 ```bash
 for i in {1..12}; do
   curl -s -o /dev/null "http://<EC2_IP>/login.php" \
@@ -344,10 +353,10 @@ done
 
 ---
 
-## Bước 7 — Xem kết quả
+## Step 7 — View the results
 
 ### Dashboard
-Mở trình duyệt: `http://<EC2_IP>:5000`
+Open in a browser: `http://<EC2_IP>:5000`
 
 ### Agent log (real-time decisions)
 ```bash
@@ -359,78 +368,78 @@ docker logs -f agent
 docker exec suricata tail -f /var/log/suricata/fast.log
 ```
 
-### IPs đang bị block
+### Currently blocked IPs
 ```bash
 docker exec agent python -c \
   "from tools.firewall import get_blocked_ips; import json; print(json.dumps(get_blocked_ips(), indent=2))"
 ```
 
-### Kiểm tra iptables trực tiếp
+### Check iptables directly
 ```bash
 sudo iptables -L DOCKER-USER -n --line-numbers
 ```
 
 ---
 
-## Cấu trúc file
+## File structure
 
 ```
 agent-ids/
 ├── docker-compose.yml
-├── README.md                     # File này
+├── README.md                     # This file
 ├── webserver/
 │   └── nginx/nginx.conf          # Reverse proxy + JSON logging
 ├── ids/
-│   ├── suricata.yaml             # Cấu hình Suricata
-│   ├── update_rules.sh           # Cài ET Open (bản tinh chỉnh / nguyên bản) + kiểm
+│   ├── suricata.yaml             # Suricata config
+│   ├── update_rules.sh           # Install ET Open (tuned / untuned) + verify
 │   └── rules/
-│       ├── custom.rules          # Rules tùy chỉnh cho DVWA
-│       ├── disable*.conf         # Rule ET Open bị tắt (bản tinh chỉnh / nguyên bản)
-│       └── suricata.rules        # ET Open rules (download ở Bước 4.1)
+│       ├── custom.rules          # Custom rules for DVWA
+│       ├── disable*.conf         # ET Open rules turned off (tuned / untuned)
+│       └── suricata.rules        # ET Open rules (downloaded in Step 4.1)
 ├── agent/
 │   ├── Dockerfile
-│   ├── main.py                   # Agent loop chính (poll log → graph / rule modes)
+│   ├── main.py                   # Main agent loop (poll logs → graph / rule modes)
 │   ├── graph.py                  # LangGraph: triage → investigate → risk_gate → act
 │   ├── schemas.py                # Pydantic Decision (structured output)
-│   ├── actions.py                # Ghi quyết định + block IP
-│   ├── gate.py                   # Phân tầng rủi ro cho HITL
-│   ├── approvals.py              # Hàng chờ duyệt block (HITL)
-│   ├── approve.py                # Duyệt block từ dòng lệnh
-│   ├── demo_hitl.py              # Demo người duyệt block
+│   ├── actions.py                # Record decisions + block IPs
+│   ├── gate.py                   # Risk tiering for HITL
+│   ├── approvals.py              # Block approval queue (HITL)
+│   ├── approve.py                # Approve blocks from the command line
+│   ├── demo_hitl.py              # Human-approval demo
 │   ├── requirements.txt
 │   ├── tools/
-│   │   ├── agent_tools.py        # Tool chỉ-đọc cho vòng investigate
-│   │   ├── alert_reader.py       # Đọc EVE JSON / nginx log theo offset
-│   │   ├── firewall.py           # Wrapper iptables
-│   │   ├── memory.py             # Experience memory (bài học từ feedback)
-│   │   ├── prompt_guard.py       # Bọc dữ liệu untrusted (<<UNTRUSTED_DATA>>)
-│   │   └── notifier.py           # Ghi log + webhook
+│   │   ├── agent_tools.py        # Read-only tools for the investigate loop
+│   │   ├── alert_reader.py       # Read EVE JSON / nginx log by offset
+│   │   ├── firewall.py           # ipset + one DOCKER-USER rule
+│   │   ├── memory.py             # Experience memory (lessons from feedback)
+│   │   ├── prompt_guard.py       # Untrusted-data fencing (<<UNTRUSTED_DATA>>)
+│   │   └── notifier.py           # Event log + webhook
 │   └── prompts/
-│       └── system.md             # System prompt LLM
+│       └── system.md             # LLM system prompt
 ├── dashboard/
 │   ├── Dockerfile
 │   ├── app.py                    # Flask API
 │   └── templates/
-│       └── index.html            # UI dashboard
-├── benchmark/                    # Harness A/B: corpus, replay, chấm điểm, CI (xem benchmark/README.md)
-│   └── results/                  # Số liệu gốc: test-final-v4 (số chính, 2026-11-03), held-out, g4, learning curve, v3
-├── docs/                         # Thiết kế thí nghiệm, corpus v2
-├── ops/ec2.sh                    # Bật/tắt EC2 của lab
-└── tests/                        # pytest, chạy offline
+│       └── index.html            # Dashboard UI
+├── benchmark/                    # A/B harness: corpus, replay, scoring, CI (see benchmark/README.md)
+│   └── results/                  # Raw numbers: test-final-v4 (main, 2026-11-03), held-out, g4, learning curve, v3
+├── docs/                         # Experiment design
+├── ops/ec2.sh                    # Start/stop the lab EC2
+└── tests/                        # pytest, runs offline
 ```
 
 ---
 
-## Tuning và mở rộng
+## Tuning and extending
 
-### Thay đổi ngưỡng block confidence
-Sửa trong [agent/prompts/system.md](agent/prompts/system.md):
+### Change the block confidence threshold
+Edit [agent/prompts/system.md](agent/prompts/system.md):
 ```
-### Block immediately (confidence ≥ 0.90)   ← thay số này
+### Block immediately (confidence ≥ 0.90)   ← change this number
 ```
 
-### Thêm detection rule mới
-Thêm vào [ids/rules/custom.rules](ids/rules/custom.rules), SID phải > 9000000:
+### Add a new detection rule
+Add it to [ids/rules/custom.rules](ids/rules/custom.rules); the SID must be > 9000000:
 ```
 alert http $EXTERNAL_NET any -> $HTTP_SERVERS $HTTP_PORTS \
   (msg:"Custom - My new rule"; flow:established,to_server; \
@@ -443,18 +452,18 @@ Reload Suricata:
 docker exec suricata suricatasc -c reload-rules
 ```
 
-### Đổi sang model nhỏ hơn (máy yếu hơn)
-Trong `docker-compose.yml`, sửa biến môi trường agent:
+### Switch to a smaller model (weaker machine)
+In `docker-compose.yml`, change the agent's environment variable:
 ```yaml
 - OLLAMA_MODEL=qwen2.5:7b   # ~5GB RAM
 ```
-Và pull model mới:
+And pull the new model:
 ```bash
 docker exec ollama ollama pull qwen2.5:7b
 ```
 
-### Bật webhook alert (Slack/Teams)
-Trong `docker-compose.yml`, thêm vào `agent` service:
+### Enable webhook alerts (Slack/Teams)
+In `docker-compose.yml`, add to the `agent` service:
 ```yaml
 environment:
   - WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
@@ -462,18 +471,18 @@ environment:
 
 ---
 
-## Dừng hệ thống
+## Stopping the system
 
 ```bash
-# Dừng tất cả (giữ data)
+# Stop everything (keep data)
 docker compose down
 
-# Dừng và xóa toàn bộ data (reset sạch)
+# Stop and delete all data (clean reset)
 docker compose down -v
 ```
 
 ---
 
-## Lưu ý bảo mật
+## Security note
 
-> Hệ thống này chứa ứng dụng **có lỗ hổng cố ý** (DVWA). Chỉ triển khai trong môi trường lab/test cô lập. **Không expose port 80 ra Internet công cộng.** Security Group phải giới hạn theo IP của bạn.
+> This system contains an **intentionally vulnerable** application (DVWA). Deploy it only in an isolated lab/test environment. **Do not expose port 80 to the public Internet.** The Security Group must be restricted to your IP.

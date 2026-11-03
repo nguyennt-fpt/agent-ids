@@ -12,7 +12,7 @@ script, so the build is reproducible and the payloads are auditable:
   payloads_benign_recon.json   fp_bait, benign_normal, and the recon group
                                (directory scan + login brute force).
 
-v2 layout (docs/CORPUS_V2.md): deterministic eids, a benchmark actor per row
+v2 layout: deterministic eids, a benchmark actor per row
 (sent as X-Forwarded-For), interleaved replay order (`seq`) in which each recon
 chain is one contiguous burst, and a fixed dev/test split by payload family; the
 held_out group is a third split, replayed once. Command

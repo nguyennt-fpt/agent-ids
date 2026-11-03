@@ -1,111 +1,119 @@
-# Benchmark — Trụ 1: A/B Evaluation Harness
+# Benchmark — Pillar 1: A/B Evaluation Harness
 
-Đo và so sánh **5 cấu hình phản ứng** trên cùng một corpus tấn công có nhãn, để chứng minh bằng số liệu AI agent cải thiện so với IDS rule-based thuần.
+Measures and compares **5 response configurations** on the same labeled attack corpus, to show with numbers whether an
+AI agent improves on a plain rule-based IDS.
 
-| Mode | Logic quyết định | Vai trò |
+| Mode | Decision logic | Role |
 |---|---|---|
-| `rule_based` | Suricata alert; block nếu `severity ≤ 2` | IDS truyền thống + auto-response |
-| `naive` | Suricata alert; block **mọi** alert | Baseline thô (over-block) |
-| `agent` | LLM + 2 nguồn (eve.json + nginx access.log) | Phương pháp đề xuất |
-| `agent_ids` | cùng graph LLM, **chỉ eve.json** | Ablation: tách "thấy nhiều hơn" (nguồn 2) khỏi "suy luận tốt hơn" |
-| `waf` | OWASP CRS trên ModSecurity (trong đường đi, DetectionOnly); tấn công khi rule `949110` (vượt ngưỡng anomaly) bắn | Baseline chuẩn doanh nghiệp cho tấn công web |
+| `rule_based` | Suricata alert; block if `severity ≤ 2` | Traditional IDS + auto-response |
+| `naive` | Suricata alert; block **every** alert | Crude baseline (over-blocking) |
+| `agent` | LLM + 2 sources (eve.json + nginx access.log) | Proposed method |
+| `agent_ids` | same LLM graph, **eve.json only** | Ablation: separates "sees more" (source 2) from "reasons better" |
+| `waf` | OWASP CRS on ModSecurity (inline, DetectionOnly); attack when rule `949110` (anomaly threshold exceeded) fires | Enterprise-standard baseline for web attacks |
 
-Thiết kế chi tiết & lý do: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIMENT_DESIGN.md).
+Detailed design and rationale: [../docs/EXPERIMENT_DESIGN.md](../docs/EXPERIMENT_DESIGN.md).
 
-## Cách đo (tóm tắt)
-- Mỗi request mang `eid` duy nhất trong query string → truy vết qua `eve.json` và SQLite decisions.
-- Quyết định nhị phân: malicious (`block`/`warn`) vs benign (`log`/không có quyết định).
-- So ground-truth (`label` trong corpus) → **Precision / Recall / F1 / FPR / Accuracy / MTTB**, kèm độ trễ
-  `ttb_p95_s` (p95 time-to-block) và `undecided` (số request chưa có quyết định khi hết giờ chờ — bình thường 0).
-- Request benign không sinh alert → không có entry → tính là dự đoán benign (đã xử lý trong `score.py`).
-- LLM non-deterministic → chạy **N=5**, báo cáo **mean ± std**. std đó chỉ đo dao động của model trên *cùng*
-  request; độ bất định do *chọn request nào* đo bằng **bootstrap ghép cặp theo request** (`bootstrap_ci.py`):
-  lấy mẫu lại `eid` có hoàn lại, cùng mẫu cho mọi mode. Chênh lệch "mode − rule_based" chỉ là bằng chứng khi
-  CI 95% không chứa 0.
+## How it measures (summary)
+- Every request carries a unique `eid` in its query string → traced through `eve.json` and the SQLite decisions.
+- Binary decision: malicious (`block`/`warn`) vs benign (`log`/no decision).
+- Compared with ground truth (`label` in the corpus) → **Precision / Recall / F1 / FPR / Accuracy / MTTB**, plus the
+  latency `ttb_p95_s` (p95 time-to-block) and `undecided` (requests still without a decision when the wait times
+  out — normally 0).
+- A benign request that raises no alert has no entry → counted as predicted benign (handled in `score.py`).
+- LLMs are non-deterministic → run **N=5**, report **mean ± std**. That std only measures the model's variation on the
+  *same* requests; the uncertainty from *which requests were chosen* is measured with a **request-paired bootstrap**
+  (`bootstrap_ci.py`): resample `eid`s with replacement, the same sample for every mode. A "mode − rule_based"
+  difference counts as evidence only when its 95% CI excludes 0.
 
-## Chạy
+## Running
 
 ```bash
-# 0. Hệ thống đang chạy (xem ../README.md). Model:
-#    - thật:   qwen2.5:14b  (EC2 GPU)
-#    - test:   qwen2.5:3b   (local, đổi OLLAMA_MODEL trong docker-compose)
+# 0. The system is running (see ../README.md). Model:
+#    - real:   qwen2.5:14b  (EC2 GPU)
+#    - test:   qwen2.5:3b   (local, change OLLAMA_MODEL in docker-compose)
 pip install -r requirements.txt
-python attack_corpus/build_corpus.py     # sinh corpus.jsonl
+python attack_corpus/build_corpus.py     # generates corpus.jsonl
 
-# 1. Chạy toàn bộ A/B (5 mode × N lần) + tổng hợp + biểu đồ
+# 1. Run the full A/B (5 modes × N runs) + aggregation + charts
 N=5 TARGET=http://localhost bash run_ab.sh
-#    SPLIT=dev khi chỉnh; SPLIT=test cho số cuối; SPLIT=held_out (tấn công chưa replay lúc chỉnh) một lần, ở cuối
+#    SPLIT=dev while tuning; SPLIT=test for the final numbers; SPLIT=held_out (attacks never replayed while tuning) once, at the end
 
-# Kết quả:
-#   report/summary_raw.csv  — mỗi dòng 1 run
-#   report/summary.csv      — mean±std mỗi mode
-#   report/preds.jsonl      — dự đoán từng eid mỗi run (đầu vào bootstrap)
-#   report/ci.csv           — 95% CI bootstrap ghép cặp theo request, gồm "mode - rule_based"
-#   report/calibration.csv  — confidence (= xác suất là tấn công) có khớp tỉ lệ tấn công thật không
-#                             (ECE; + reliability.png nếu có matplotlib)
-#   report/logs/<mode>_run<N>.log — log container agent mỗi run; mode agent* in thêm dòng [CALLS]
-#                             (số lần gọi LLM: triage / bước điều tra / quyết định cuối / thử lại)
+# Output:
+#   report/summary_raw.csv  — one row per run
+#   report/summary.csv      — mean±std per mode
+#   report/preds.jsonl      — per-eid prediction for every run (bootstrap input)
+#   report/ci.csv           — 95% request-paired bootstrap CI, including "mode - rule_based"
+#   report/calibration.csv  — whether confidence (= probability of attack) matches the real attack rate
+#                             (ECE; + reliability.png if matplotlib is installed)
+#   report/logs/<mode>_run<N>.log — the agent container log for each run; agent* modes also print a [CALLS] line
+#                             (LLM calls: triage / investigate steps / final decision / retries)
 #   report/compare_quality.png, compare_mttb.png, compare_groups.png
-# REPORT_TAG=<tên> → sao kết quả vào report/<tên>/ (lần chạy sau xóa các file ở report/)
+# REPORT_TAG=<name> → copies the results to report/<name>/ (the next run clears the files in report/)
 ```
 
-### Số liệu cuối + phụ lục độ nhạy với tinh chỉnh IDS
+### Final numbers + appendix on sensitivity to IDS tuning
 
-Số liệu chính chạy trên ET Open **đã tinh chỉnh** (`ids/rules/disable.conf`: tắt Modbus/DNP3 — không nạp được — và
-rule nhiễu `2221036`). Phụ lục chạy lại y hệt trên ET Open **nguyên bản** (`disable-untuned.conf`: chỉ tắt Modbus/DNP3)
-để cho thấy kết luận không phụ thuộc vào việc tắt rule đó. Trên host EC2, từ gốc repo:
+The main numbers run on **tuned** ET Open (`ids/rules/disable.conf`: turns off Modbus/DNP3 — they fail to load — and
+the noisy rule `2221036`). The appendix re-runs exactly the same thing on **untuned** ET Open (`disable-untuned.conf`:
+only Modbus/DNP3 off) to show the conclusions do not depend on turning that rule off. On the EC2 host, from the repo
+root:
 
 ```bash
-bash ids/update_rules.sh                      # bản tinh chỉnh (mặc định)
+bash ids/update_rules.sh                      # tuned version (default)
 REPORT_TAG=main SPLIT=test N=5 bash benchmark/run_ab.sh
-bash ids/update_rules.sh untuned              # ET Open nguyên bản
+bash ids/update_rules.sh untuned              # untuned ET Open
 REPORT_TAG=etopen-untuned SPLIT=test N=5 bash benchmark/run_ab.sh
-bash ids/update_rules.sh                      # trả về bản tinh chỉnh
+bash ids/update_rules.sh                      # back to the tuned version
 ```
 
-`update_rules.sh` dừng với lỗi nếu suricata-update không cài được ruleset (nó âm thầm giữ lại bộ rule cũ khi
-`suricata -T` thất bại), restart Suricata, rồi kiểm Ollama còn GPU không.
+`update_rules.sh` stops with an error if suricata-update did not install the ruleset (it silently keeps the old rules
+when `suricata -T` fails), restarts Suricata, then checks that Ollama still has the GPU.
 
-## Trụ 3 — Adversarial robustness (prompt injection)
+## Pillar 3 — Adversarial robustness (prompt injection)
 
-Đo tỷ lệ **bypass** (tấn công thật mà quyết định cuối không phải block/warn) khi mỗi request đi qua **đúng đường
-production**: `main.process_agent_events` → graph (structured output, salvage, investigate, act), gồm retry +
-fail-closed. Hai lớp phòng thủ bật/tắt **độc lập** (thiết kế 2×2): phần DEFENSE trong `prompts/system.md`, và bọc
-`<<UNTRUSTED_DATA>>` (`wrap_untrusted`). Event dạng nguồn web (không có signature IDS gợi ý). Mỗi batch ghép mẫu
-injection với vài tấn công sạch của tập dev → đo cả **bypass lan sang** event khác trong batch. Không ghi DB, không
-đụng firewall, tool điều tra thấy log rỗng. Mặc định agent triage **từng event** (`TRIAGE_BATCH=1`, N1) → mỗi event
-một lần gọi model, lan sang = 0 theo cấu trúc; thêm `-e TRIAGE_BATCH=15` vào `docker exec` để đo lan sang khi gộp lô.
+Measures the **bypass** rate (real attacks whose final decision is not block/warn) with every request going through
+**the production path**: `main.process_agent_events` → graph (structured output, salvage, investigate, act), including
+retry + fail-closed. Two defense layers are toggled **independently** (2×2 design): the DEFENSE section in
+`prompts/system.md`, and the `<<UNTRUSTED_DATA>>` fence (`wrap_untrusted`). Events are web-source shaped (no IDS
+signature hint). Each batch pairs an injection sample with a few clean dev-set attacks → also measures **collateral
+bypass** onto the other events in the batch. Nothing is written to the DB, the firewall is not touched, and the
+investigate tools see empty logs. By default the agent triages **one event at a time** (`TRIAGE_BATCH=1`, N1) → one
+model call per event, so collateral is 0 by construction; add `-e TRIAGE_BATCH=15` to `docker exec` to measure
+collateral when batching.
 
 ```bash
-# chạy trong container agent (có langgraph + Ollama) — trên EC2:
+# run inside the agent container (has langgraph + Ollama) — on EC2:
 docker cp benchmark agent:/tmp/bench
-# MEMORY_ENABLED=false: container còn env của learning curve thì triage sẽ kèm lesson cũ
+# MEMORY_ENABLED=false: if the container still has the learning-curve env, triage would include old lessons
 docker exec -e AGENT_DIR=/app -e MEMORY_ENABLED=false -e RESPONSE_MODE=agent agent \
   python /tmp/bench/adversarial/test_injection.py   # --repeats 2 --companions 3
 docker cp agent:/tmp/bench/report/adversarial_graph.csv benchmark/report/
-# -> bypass + bypass lan sang theo từng điều kiện, tác động riêng của từng lớp phòng thủ, kèm 95% CI
+# -> bypass + collateral bypass per condition, the separate effect of each defense layer, with 95% CIs
 ```
 
-CI là bootstrap theo mẫu injection (các lần lặp của cùng một mẫu không độc lập). Bộ mẫu: **25** kỹ thuật trong 5 họ
-(`injections.jsonl`, sinh từ `build_injections.py`; 12 mẫu đầu là bộ dùng tới 2026-10-27). Lớp parse cứng (action enum, fail-closed từng item, salvage) nằm trong
-`agent/schemas.py` và luôn bật — không phải biến của thí nghiệm.
+The CI is a bootstrap over injection samples (repeats of the same sample are not independent). Sample set: **25**
+techniques in 5 families (`injections.jsonl`, generated by `build_injections.py`; the first 12 are the set used up to
+2026-10-27). The hard parse layer (action enum, per-item fail-closed, salvage) lives in `agent/schemas.py` and is
+always on — it is not a variable of the experiment.
 
-## Trụ 4 — Experience memory
+## Pillar 4 — Experience memory
 
-Đo **learning curve**: agent học từ lỗi qua nhiều epoch (memory on vs off). Mỗi epoch **đánh giá trước** trên tập
-test (chỉ dùng lesson đã học), **rồi học** từ feedback của tập dev — không bao giờ nạp đáp án của tập đang chấm
-(bản cũ replay cùng corpus và nạp đáp án của chính các request đó → đo khả năng nhớ đáp án). Epoch 1 = mốc chưa có memory.
+Measures the **learning curve**: does the agent learn from its mistakes across epochs (memory on vs off). Each epoch
+**evaluates first** on the test set (using only the lessons learned so far), **then learns** from the dev set's
+feedback — the answers of the set being scored are never fed in (the old version replayed one corpus and fed back the
+answers of those very requests → it measured memorization). Epoch 1 = the no-memory baseline.
 
 ```bash
-docker exec ollama ollama pull nomic-embed-text     # embedding cho memory
-python learning_curve.py --epochs 3 --memory on --delay 4    # số trong README chạy đúng lệnh này
+docker exec ollama ollama pull nomic-embed-text     # embeddings for memory
+python learning_curve.py --epochs 3 --memory on --delay 4    # the README numbers use exactly this command
 python learning_curve.py --epochs 3 --memory off --delay 4
-# -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ theo epoch)
+# -> report/curve_on.csv, curve_off.csv, learning_curve.png (FPR↓ / Recall↑ per epoch)
 ```
 
-*Rule tự sinh (Trụ 4B, pipeline 4 gate) đã **cắt khỏi phạm vi** và xóa code — xem `docs/EXPERIMENT_DESIGN.md` mục "Trụ 4B".*
+*Self-generated rules (Pillar 4B, 4-gate pipeline) were **cut from scope** and the code deleted — see
+`docs/EXPERIMENT_DESIGN.md`, section "Pillar 4B".*
 
-### Chạy tay từng bước (debug)
+### Running step by step (debug)
 ```bash
 RESPONSE_MODE=agent BLOCK_ENABLED=false WEB_UNTAGGED=false docker compose up -d --force-recreate --no-deps agent
 python replay.py --target http://localhost --delay 0.5
@@ -113,27 +121,34 @@ python score.py --mode agent --run 1
 python plot.py
 ```
 
-## Đọc kết quả
-- `compare_quality.png` — Precision/Recall/F1/FPR/Accuracy theo mode (có error bar = std).
-- `compare_groups.png` — **nơi agent nên thắng**: `recall_evasion` ↑ (bắt evasion Suricata miss) và `fpr_fpbait` ↓ (không chặn nhầm request trông giống attack).
-  Kết quả 2026-11-03 (v4): thắng ở evasion (recall 1.00, WAF 0.88, IDS 0.27), không thắng ở fp_bait (FPR 0.08, WAF 0.07, IDS 0).
-- `compare_mttb.png` — agent thường **chậm hơn** (LLM ~vài giây) — tradeoff trung thực.
-- Nhịp replay: rule/WAF `DELAY` (0.5s), agent* `DELAY_LLM` (mặc định 6s). Triage từng event tốn ~4.4s LLM/request
-  trên T4; nhịp 4s (2026-10-27) không còn dư → MTTB đo hàng đợi và một run tụt >10 phút. Giữ tải ≲75%.
+## Reading the results
+- `compare_quality.png` — Precision/Recall/F1/FPR/Accuracy per mode (error bars = std).
+- `compare_groups.png` — **where the agent should win**: `recall_evasion` ↑ (catches the evasion Suricata misses) and
+  `fpr_fpbait` ↓ (does not block attack-looking benign requests by mistake).
+  Results 2026-11-03 (v4): wins on evasion (recall 1.00, WAF 0.88, IDS 0.27), does not win on fp_bait (FPR 0.08,
+  WAF 0.07, IDS 0).
+- `compare_mttb.png` — the agent is usually **slower** (a few seconds of LLM time) — an honest trade-off.
+- Replay pacing: rule/WAF `DELAY` (0.5s), agent* `DELAY_LLM` (default 6s). Triaging one event at a time costs ~4.4s of
+  LLM time per request on a T4; 4s pacing (2026-10-27) left no headroom → MTTB measured the queue and one run fell
+  more than 10 minutes behind. Keep the load ≲75%.
 
-## Lưu ý
-- `BLOCK_ENABLED=false` khi benchmark để agent **ghi quyết định nhưng không** firewall nguồn replay (tránh tự chặn các request sau).
-- Corpus: **260 mẫu** (159 tấn công / 101 lành; dev 52, test 147, held_out 61 — chỉ tấn công) từ nguồn công khai —
-  `attack_corpus/build_corpus.py`. Tập test đã dùng cho ba lần đo cuối (2026-10-27, 2026-11-01, 2026-11-03), held_out
-  một lần (2026-11-03) → đổi prompt/logic sau này cần tập mới, có cả request lành.
-- `score.py` chờ quyết định trước khi chấm: mode `agent` chờ tới khi **mọi `eid` đã gửi** có quyết định;
-  `rule_based`/`naive`/`agent_ids` chờ đủ các `eid` Suricata đã alert trong run này (`alerted_eids.py` →
-  `--alerted`, `run_ab.sh` tự làm). Tối đa `--timeout` (mặc định 2700s — chỉ là chốt an toàn: một run chậm phải
-  hiện ở độ trễ, không thành "bỏ sót"); hết giờ in số `eid` thiếu và ghi cột `undecided`. Chạy tay
-  không có `--alerted` thì quay về "số row ổn định `--settle` giây".
-- Mỗi run tạo lại container agent (`--force-recreate`) → tập `decided` và offset đọc log bắt đầu mới;
-  agent đọc cả `eve.json` lẫn nginx log từ cuối file lúc khởi động (không xử lý lại traffic run trước).
-- Host Ubuntu (EC2): tắt timer apt tự động, cập nhật tay lúc đầu phiên. apt tải gói qua HTTP → alert IDS rác chen vào
-  hàng đợi agent (run timeout 2026-10-27); apt cài gói → Ollama mất GPU (`systemd`) hoặc driver NVIDIA lệch phiên bản,
-  phải reboot (2026-11-01). Tắt: `sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer`. Trước khi đo:
-  `sudo apt update && sudo apt upgrade -y` → reboot nếu có gói NVIDIA/systemd/kernel → `docker exec ollama nvidia-smi -L`.
+## Notes
+- `BLOCK_ENABLED=false` during benchmarks so the agent **records decisions but does not** firewall the replay source
+  (otherwise it would block its own later requests).
+- Corpus: **260 samples** (159 attacks / 101 benign; dev 52, test 147, held_out 61 — attacks only) from public
+  sources — `attack_corpus/build_corpus.py`. The test set has been used for three final runs (2026-10-27, 2026-11-01,
+  2026-11-03), held_out once (2026-11-03) → later prompt/logic changes need a new set that includes benign requests.
+- `score.py` waits for decisions before scoring: `agent` mode waits until **every sent `eid`** has a decision;
+  `rule_based`/`naive`/`agent_ids` wait for the `eid`s Suricata alerted on in this run (`alerted_eids.py` →
+  `--alerted`, done automatically by `run_ab.sh`). At most `--timeout` (default 2700s — only a safety net: a slow run
+  must show up as latency, not as "misses"); on timeout it prints the number of missing `eid`s and fills the
+  `undecided` column. Run by hand without `--alerted` it falls back to "row count stable for `--settle` seconds".
+- Every run recreates the agent container (`--force-recreate`) → a fresh `decided` set and read offsets; the agent
+  reads both `eve.json` and the nginx log from the end of the file at startup (it does not reprocess the previous
+  run's traffic).
+- Ubuntu host (EC2): turn off the automatic apt timers and update by hand at the start of a session. apt downloads
+  packages over HTTP → junk IDS alerts get into the agent's queue (run timeout 2026-10-27); apt installing packages →
+  Ollama loses the GPU (`systemd`) or the NVIDIA driver versions drift apart and a reboot is needed (2026-11-01). Turn
+  off: `sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer`. Before measuring:
+  `sudo apt update && sudo apt upgrade -y` → reboot if NVIDIA/systemd/kernel packages changed →
+  `docker exec ollama nvidia-smi -L`.

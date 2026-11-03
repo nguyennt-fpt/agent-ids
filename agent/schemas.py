@@ -1,4 +1,4 @@
-"""Structured-output contract for the LangGraph agent (bài 07 — Planning /
+"""Structured-output contract for the LangGraph agent (lesson 07 — Planning /
 Structured Output).
 
 Pydantic + a fixed `Action` enum stop the model inventing actions or extra

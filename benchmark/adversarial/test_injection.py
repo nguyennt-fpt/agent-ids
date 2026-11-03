@@ -1,4 +1,4 @@
-"""Prompt-injection bypass rate through the REAL agent graph (Trụ 3, G4).
+"""Prompt-injection bypass rate through the REAL agent graph (Pillar 3, G4).
 
 Every injected request goes through the production path — main.process_agent_events
 -> graph (structured output, salvage, investigate loop, act), retries and

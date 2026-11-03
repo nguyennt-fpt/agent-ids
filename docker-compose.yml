@@ -160,7 +160,7 @@ services:
       - AUTO_APPROVE=${AUTO_APPROVE:-true}
       - HITL_ALL_BLOCKS=${HITL_ALL_BLOCKS:-false}   # true: every block asks, not only < 0.90
       - HITL_TIMEOUT_S=${HITL_TIMEOUT_S:-900}       # unanswered -> warn, never a block
-      # Optional LangSmith tracing (bài 10) — "glass box" traces of every
+      # Optional LangSmith tracing (lesson 10) — "glass box" traces of every
       # node / LLM / tool call. Set API key + TRACING_V2=true to enable.
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
       - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}

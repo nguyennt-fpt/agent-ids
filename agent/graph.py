@@ -1,12 +1,12 @@
-"""LangGraph decision engine for the security agent (Giai đoạn 2).
+"""LangGraph decision engine for the security agent (Phase 2).
 
 Flow:  triage → (route) → investigate → risk_gate → act
 
-  triage      one batch structured call classifies every event (bài 04/07)
+  triage      one batch structured call classifies every event (lesson 04/07)
   route       ambiguous events (gray-band confidence) → investigate, else skip
   investigate bounded ReAct tool-loop that gathers context for the hard cases
-              (bài 04/05) — the model may call read-only tools, then re-decides
-  risk_gate   risk-tier each action; block = high tier (bài 06). Human approval
+              (lesson 04/05) — the model may call read-only tools, then re-decides
+  risk_gate   risk-tier each action; block = high tier (lesson 06). Human approval
               via interrupt() lands in Phase 2b — here it audits the tier.
   act         record decisions + block/log via direct tools + experience memory
 
@@ -61,7 +61,7 @@ _final_llm = None
 
 
 def _structured_llm():
-    """Batch classifier bound to the Pydantic list schema (bài 07). include_raw
+    """Batch classifier bound to the Pydantic list schema (lesson 07). include_raw
     keeps the model's text when the whole list fails to parse, so triage_node
     can salvage the valid items instead of losing the batch."""
     global _triage_llm
@@ -76,7 +76,7 @@ def _structured_llm():
 
 
 def _investigate_llm():
-    """Tool-calling model for the ReAct loop (bài 04/05)."""
+    """Tool-calling model for the ReAct loop (lesson 04/05)."""
     global _tools_llm
     if _tools_llm is None:
         _tools_llm = ChatOllama(
@@ -108,10 +108,10 @@ class AgentState(TypedDict):
 def triage_node(state: AgentState) -> dict:
     """One structured LLM call classifies every event; flag the unsure ones."""
     todo = state["events"]
-    events_json = wrap_untrusted(json.dumps(todo, ensure_ascii=False))  # bài 06/12
+    events_json = wrap_untrusted(json.dumps(todo, ensure_ascii=False))  # lesson 06/12
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
-    # bài 09/13: lessons from similar past cases. They quote past payloads, so
+    # lesson 09/13: lessons from similar past cases. They quote past payloads, so
     # they are fenced as untrusted data, never a system message (stored
     # prompt injection otherwise).
     past_cases = ""
@@ -163,7 +163,7 @@ def route_after_triage(state: AgentState) -> str:
 
 
 def _investigate_one(event: dict, prior: dict) -> dict:
-    """Bounded ReAct loop (bài 04/05): let the model call read-only tools to
+    """Bounded ReAct loop (lesson 04/05): let the model call read-only tools to
     gather context, then produce a final structured decision. Falls back to the
     triage decision on any error."""
     tools_by_name = {t.name: t for t in READ_TOOLS}
@@ -202,7 +202,7 @@ def _investigate_one(event: dict, prior: dict) -> dict:
                 out = fn.invoke(tc["args"]) if fn else f"unknown tool {tc['name']}"
             except Exception as e:
                 out = f"tool error: {e}"
-            # tool output quotes attacker payloads -> fenced like the event (bài 06)
+            # tool output quotes attacker payloads -> fenced like the event (lesson 06)
             messages.append(ToolMessage(content=wrap_untrusted(str(out)[:2000]),
                                         tool_call_id=tc["id"]))
 
@@ -237,7 +237,7 @@ def investigate_node(state: AgentState) -> dict:
 
 
 def risk_gate_node(state: AgentState) -> dict:
-    """Human-in-the-loop gate (bài 06). Block = high tier; a low-confidence block
+    """Human-in-the-loop gate (lesson 06). Block = high tier; a low-confidence block
     needs a human. Headless (AUTO_APPROVE) auto-approves and audits; otherwise
     interrupt() pauses the graph until a human approves/denies (see demo_hitl.py).
     A denied block is downgraded to warn, never silently dropped. A block whose

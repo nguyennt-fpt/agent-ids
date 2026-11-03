@@ -1,4 +1,4 @@
-"""Experience memory for the agent (Trụ 4A).
+"""Experience memory for the agent (Pillar 4A).
 
 Stores past decisions + ground-truth feedback, retrieves similar past cases
 (prioritizing mistakes) to inject as few-shot lessons. Embeddings via Ollama

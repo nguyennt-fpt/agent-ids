@@ -1,5 +1,5 @@
 """Prompt-injection defenses shared by the agent (production) and the
-adversarial benchmark (Trụ 3). Keeping them in one module guarantees the
+adversarial benchmark (Pillar 3). Keeping them in one module guarantees the
 benchmark measures exactly what runs in production.
 
   wrap_untrusted() — fences attacker-controlled data so the system prompt can
