@@ -24,3 +24,11 @@ ids/rules/suricata.rules
 # ─── OS cruft ──────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ─── Working notes / local tooling (kept on disk, not published) ───────────────
+notes/
+ROADMAP.md
+CLAUDE.md
+.claude/
+.codegraph/
+*.bundle

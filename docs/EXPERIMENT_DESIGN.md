@@ -1,6 +1,6 @@
 # Thiết kế thí nghiệm — agent-ids Giai đoạn 2
 
-Tài liệu này giữ **cốt lõi khoa học** của dự án trong repo, để mọi session/người đọc hiểu *tại sao* thiết kế như vậy mà không cần plan file ẩn. Checklist triển khai: [../ROADMAP.md](../ROADMAP.md).
+Tài liệu này giữ **cốt lõi khoa học** của dự án trong repo, để mọi session/người đọc hiểu *tại sao* thiết kế như vậy mà không cần plan file ẩn.
 
 ## Câu hỏi nghiên cứu
 

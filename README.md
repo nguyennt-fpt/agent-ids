@@ -377,9 +377,7 @@ sudo iptables -L DOCKER-USER -n --line-numbers
 ```
 agent-ids/
 ├── docker-compose.yml
-├── CLAUDE.md                     # Hướng dẫn cho Claude Code
 ├── README.md                     # File này
-├── ROADMAP.md                    # Kế hoạch + trạng thái Giai đoạn 2
 ├── webserver/
 │   └── nginx/nginx.conf          # Reverse proxy + JSON logging
 ├── ids/
@@ -417,7 +415,6 @@ agent-ids/
 ├── benchmark/                    # Harness A/B: corpus, replay, chấm điểm, CI (xem benchmark/README.md)
 │   └── results/                  # Số liệu gốc: test-final-v4 (số chính, 2026-11-03), held-out, g4, learning curve, v3
 ├── docs/                         # Thiết kế thí nghiệm, corpus v2
-├── notes/                        # Review + checklist sửa lỗi
 ├── ops/ec2.sh                    # Bật/tắt EC2 của lab
 └── tests/                        # pytest, chạy offline
 ```

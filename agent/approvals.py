@@ -8,7 +8,7 @@ paused run once every item of that run is answered.
 
 Answers: approve (block), warn (attack, but don't firewall), benign (false
 positive -> log). An item left unanswered for HITL_TIMEOUT_S counts as warn —
-never an unreviewed block. The dashboard stays read-only (CLAUDE.md).
+never an unreviewed block. The dashboard stays read-only except this one token-gated write.
 """
 
 import os
